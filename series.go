@@ -19,6 +19,7 @@
 package storage
 
 import (
+	"math"
 	"time"
 
 	"github.com/m3db/m3x/close"
@@ -76,6 +77,13 @@ func (s Float64SeriesValues) SetValueAt(n int, v float64) { s[n] = v }
 
 // ValueAt returns the value at the given position
 func (s Float64SeriesValues) ValueAt(n int) float64 { return s[n] }
+
+// Reset fills the series with NaNs
+func (s Float64SeriesValues) Reset() {
+	for n := range s {
+		s[n] = math.NaN()
+	}
+}
 
 // A SeriesValuesPool allows for pooling of the underlying SeriesValues, which
 // are typically large and benefit from being held in some form of pool
