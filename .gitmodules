@@ -1,0 +1,9 @@
+[submodule "vendor/github.com/m3db/m3x"]
+	path = vendor/github.com/m3db/m3x
+	url = https://github.com/m3db/m3x
+[submodule "vendor/github.com/golang/protobuf"]
+	path = vendor/github.com/golang/protobuf
+	url = https://github.com/golang/protobuf
+[submodule "vendor/github.com/golang/mock"]
+	path = vendor/github.com/golang/mock
+	url = https://github.com/golang/mock
