@@ -26,15 +26,25 @@ import (
 // reads and writes against multiple storage clusters
 type StorageManager interface {
 	// Read reads datapoints for the id between two times
-	Read(id string, start, end time.Time, cf CombineFunc) (ReadResult, error)
+	Read(id string, start, end time.Time, ds Downsampler) (ReadResult, error)
 
 	// Write writes a datapoint for the id
 	Write(id string, t time.Time, v float64) error
 }
 
-// CombineFunc combines multiple datapoints within a time interval
-// to produce a downsampled aggregated value
-type CombineFunc func(curval, newval float64, count int) float64
+// A Downsampler combines multiple datapoints that appear within the
+// same time interval to produce a single downsampled result
+type Downsampler interface {
+	// Init initializes the downsampler to store results in the given values
+	Init(vals SeriesValues)
+
+	// AddSample adds a datapoint sample to the given interval
+	AddSample(n int, v float64)
+
+	// Finish tells the downsampler we're complete and the final values
+	// computed (if they are not already)
+	Finish()
+}
 
 // ReadResult is the result of doing a read
 type ReadResult interface {
