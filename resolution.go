@@ -20,32 +20,46 @@ package storage
 
 import (
 	"time"
+
+	"github.com/m3db/m3x/time"
 )
 
-// A Resolution is a named blah blah
+// A Resolution is a named bucket size
 type Resolution interface {
-	Name() string                                           // the name of the resolution
-	WindowSize() time.Duration                              // the size of the window represented by the resolution
-	AlignToStart(t time.Time) time.Time                     // aligns the given time to the start
-	TimeRangeContaining(t time.Time) (time.Time, time.Time) // returns the time range containing
-	// the given time, aligned to the resolution
+	// Name is the name of the Resolution
+	Name() string
+
+	// WindowSize is the size of the bucket represented by the resolution
+	WindowSize() time.Duration
+
+	// Precision defines the precision of datapoints stored at this resolution
+	Precision() xtime.Unit
+
+	// AlignToStart aligns the given time to the start of the bucket containing that time
+	AlignToStart(t time.Time) time.Time
+
+	// TimeRangeContaining returns the time range containing the given time at the resolution
+	TimeRangeContaining(t time.Time) (time.Time, time.Time)
 }
 
 // NewResolution returns a new named resolution
-func NewResolution(name string, windowSize time.Duration) Resolution {
+func NewResolution(name string, windowSize time.Duration, precision xtime.Unit) Resolution {
 	return resolution{
 		name:       name,
 		windowSize: windowSize,
+		precision:  precision,
 	}
 }
 
 type resolution struct {
 	name       string
 	windowSize time.Duration
+	precision  xtime.Unit
 }
 
 func (r resolution) Name() string                       { return r.name }
 func (r resolution) WindowSize() time.Duration          { return r.windowSize }
+func (r resolution) Precision() xtime.Unit              { return r.precision }
 func (r resolution) AlignToStart(t time.Time) time.Time { return t.Truncate(r.windowSize) }
 func (r resolution) TimeRangeContaining(t time.Time) (time.Time, time.Time) {
 	start := t.Truncate(r.windowSize)
