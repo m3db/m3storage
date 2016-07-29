@@ -39,38 +39,38 @@ func NewVersionedConfig(version int, data []byte) VersionedConfig {
 	}
 }
 
-// A StorageClass defines a class of storage (m3db, hbase, etc)
-type StorageClass interface {
+// A Backend defines a type of storage backend (m3db, hbase, etc)
+type Backend interface {
 	// Name is the name of the storage class
 	Name() string
-	SetName(s string) StorageClass
+	SetName(s string) Backend
 }
 
 // A Cluster defines a cluster
 type Cluster interface {
-	Name() string               // the name of the cluster
-	StorageClass() StorageClass // the cluster's storage class
-	Config() VersionedConfig    // the cluster's configuration
+	Name() string            // the name of the cluster
+	Backend() Backend        // the cluster's storage class
+	Config() VersionedConfig // the cluster's configuration
 }
 
 // NewCluster returns a new Cluster with the given name, storage class, and config
-func NewCluster(name string, storageClass StorageClass, config VersionedConfig) Cluster {
+func NewCluster(name string, backend Backend, config VersionedConfig) Cluster {
 	return cluster{
-		name:         name,
-		storageClass: storageClass,
-		config:       config,
+		name:    name,
+		backend: backend,
+		config:  config,
 	}
 }
 
 type cluster struct {
-	name         string
-	storageClass StorageClass
-	config       VersionedConfig
+	name    string
+	backend Backend
+	config  VersionedConfig
 }
 
-func (c cluster) Name() string               { return c.name }
-func (c cluster) StorageClass() StorageClass { return c.storageClass }
-func (c cluster) Config() VersionedConfig    { return c.config }
+func (c cluster) Name() string            { return c.name }
+func (c cluster) Backend() Backend        { return c.backend }
+func (c cluster) Config() VersionedConfig { return c.config }
 
 type versionedConfig struct {
 	version int
