@@ -32,8 +32,8 @@ type SeriesIterator interface {
 	// Next returns true if there is more data in the series
 	Next() bool
 
-	// Value returns the value and timestamp for the current datapoint
-	Value() (float64, time.Time)
+	// Current returns the value and timestamp for the current datapoint
+	Current() (float64, time.Time)
 }
 
 // A Connection is a connection to a storage cluster, which can be used to
