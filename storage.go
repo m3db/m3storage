@@ -22,9 +22,9 @@ import (
 	"time"
 )
 
-// The StorageManager is the main interface into the storage system, supporting
+// The Manager is the main interface into the storage system, supporting
 // reads and writes against multiple storage clusters
-type StorageManager interface {
+type Manager interface {
 	// Read reads datapoints for the id between two times
 	Read(id string, start, end time.Time, ds Downsampler) (ReadResult, error)
 

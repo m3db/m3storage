@@ -22,39 +22,39 @@ import (
 	"time"
 )
 
-// A StorageMappingRule defines a rule for mapping a shard to a storage cluster
-type StorageMappingRule interface {
+// A MappingRule defines a rule for mapping a shard to a storage cluster
+type MappingRule interface {
 	// ReadCutoverTime is the time at which reads should begin to be applied
 	// against this cluster
 	ReadCutoverTime() time.Time
-	SetReadCutoverTime(t time.Time) StorageMappingRule
+	SetReadCutoverTime(t time.Time) MappingRule
 
 	// WriteCutoverTime is the time at which writes should begin to be applied
 	// against this cluster
 	WriteCutoverTime() time.Time
-	SetWriteCutoverTime(t time.Time) StorageMappingRule
+	SetWriteCutoverTime(t time.Time) MappingRule
 
 	// ReadCutoffTime is the time at which reads should stop being applied to
 	// this cluster
 	ReadCutoffTime() time.Time
-	SetReadCutoffTime(t time.Time) StorageMappingRule
+	SetReadCutoffTime(t time.Time) MappingRule
 
 	// RetentionPeriod is the length of time
 	RetentionPeriod() time.Duration
-	SetRetentionPeriod(p time.Duration) StorageMappingRule
+	SetRetentionPeriod(p time.Duration) MappingRule
 
 	// Resolution is the resolution at which datapoints are stored under this
 	// rule
 	Resolution() Resolution
-	SetResolution(r Resolution) StorageMappingRule
+	SetResolution(r Resolution) MappingRule
 
 	// Cluster is the cluster that holds the datapoints
 	Cluster() Cluster
-	SetCluster(c Cluster) StorageMappingRule
+	SetCluster(c Cluster) MappingRule
 }
 
-// NewStorageMappingRule creates a new StorageMappingRule
-func NewStorageMappingRule() StorageMappingRule { return new(storageMappingRule) }
+// NewMappingRule creates a new MappingRule
+func NewMappingRule() MappingRule { return new(mappingRule) }
 
 // A ClusterConfigChange is a change to a cluster configuration
 type ClusterConfigChange interface {
@@ -68,11 +68,11 @@ func NewClusterConfigChange(c Cluster) ClusterConfigChange {
 	}
 }
 
-// A StorageMapping is a set of rules mapping shards onto a storage cluster.
-type StorageMapping interface {
+// A Mapping is a set of rules mapping shards onto a storage cluster.
+type Mapping interface {
 	// RulesForShard returns the mapping rules that currently apply to the given shard, plus
 	// a channel that can be used to receive new mapping rules
-	RulesForShard(n int) ([]StorageMappingRule, <-chan []StorageMappingRule, error)
+	RulesForShard(n int) ([]MappingRule, <-chan []MappingRule, error)
 
 	// Clusters returns all of the currently defined clusters, plus a channel
 	// that can be used to receive cluster changes (new clusters, changes to
@@ -80,7 +80,7 @@ type StorageMapping interface {
 	Clusters() ([]Cluster, <-chan ClusterConfigChange, error)
 }
 
-type storageMappingRule struct {
+type mappingRule struct {
 	readCutoverTime  time.Time
 	writeCutoverTime time.Time
 	readCutoffTime   time.Time
@@ -89,34 +89,34 @@ type storageMappingRule struct {
 	cluster          Cluster
 }
 
-func (sr *storageMappingRule) ReadCutoverTime() time.Time     { return sr.readCutoverTime }
-func (sr *storageMappingRule) ReadCutoffTime() time.Time      { return sr.readCutoffTime }
-func (sr *storageMappingRule) WriteCutoverTime() time.Time    { return sr.writeCutoverTime }
-func (sr *storageMappingRule) RetentionPeriod() time.Duration { return sr.retentionPeriod }
-func (sr *storageMappingRule) Resolution() Resolution         { return sr.resolution }
-func (sr *storageMappingRule) Cluster() Cluster               { return sr.cluster }
+func (sr *mappingRule) ReadCutoverTime() time.Time     { return sr.readCutoverTime }
+func (sr *mappingRule) ReadCutoffTime() time.Time      { return sr.readCutoffTime }
+func (sr *mappingRule) WriteCutoverTime() time.Time    { return sr.writeCutoverTime }
+func (sr *mappingRule) RetentionPeriod() time.Duration { return sr.retentionPeriod }
+func (sr *mappingRule) Resolution() Resolution         { return sr.resolution }
+func (sr *mappingRule) Cluster() Cluster               { return sr.cluster }
 
-func (sr *storageMappingRule) SetReadCutoverTime(t time.Time) StorageMappingRule {
+func (sr *mappingRule) SetReadCutoverTime(t time.Time) MappingRule {
 	sr.readCutoverTime = t
 	return sr
 }
-func (sr *storageMappingRule) SetReadCutoffTime(t time.Time) StorageMappingRule {
+func (sr *mappingRule) SetReadCutoffTime(t time.Time) MappingRule {
 	sr.readCutoffTime = t
 	return sr
 }
-func (sr *storageMappingRule) SetWriteCutoverTime(t time.Time) StorageMappingRule {
+func (sr *mappingRule) SetWriteCutoverTime(t time.Time) MappingRule {
 	sr.writeCutoverTime = t
 	return sr
 }
-func (sr *storageMappingRule) SetRetentionPeriod(p time.Duration) StorageMappingRule {
+func (sr *mappingRule) SetRetentionPeriod(p time.Duration) MappingRule {
 	sr.retentionPeriod = p
 	return sr
 }
-func (sr *storageMappingRule) SetResolution(r Resolution) StorageMappingRule {
+func (sr *mappingRule) SetResolution(r Resolution) MappingRule {
 	sr.resolution = r
 	return sr
 }
-func (sr *storageMappingRule) SetCluster(c Cluster) StorageMappingRule {
+func (sr *mappingRule) SetCluster(c Cluster) MappingRule {
 	sr.cluster = c
 	return sr
 }

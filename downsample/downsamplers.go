@@ -24,7 +24,7 @@ import (
 	"github.com/m3db/m3storage"
 )
 
-// NanSafe returns a variant of the provided function that can account for NaN
+// NaNSafe returns a variant of the provided function that can account for NaN
 // values in either of the parameters
 func NaNSafe(f func(a, b float64) float64) func(float64, float64) float64 {
 	return func(a, b float64) float64 {
@@ -40,21 +40,21 @@ func NaNSafe(f func(a, b float64) float64) func(float64, float64) float64 {
 	}
 }
 
-// DownsampleWith returns a downsampler that uses the provided function to
+// With returns a downsampler that uses the provided function to
 // combine the new sample with the existing downsampled value
-func DownsampleWith(f func(float64, float64) float64) storage.Downsampler {
+func With(f func(float64, float64) float64) storage.Downsampler {
 	return &simpleDownsampler{f: f}
 }
 
 // Min returns a Downsampler that picks the minimum value as the sample
-func Min() storage.Downsampler { return DownsampleWith(NaNSafe(math.Min)) }
+func Min() storage.Downsampler { return With(NaNSafe(math.Min)) }
 
 // Max returns a Downsampler that picks the maximum value as the sample
-func Max() storage.Downsampler { return DownsampleWith(NaNSafe(math.Max)) }
+func Max() storage.Downsampler { return With(NaNSafe(math.Max)) }
 
 // Count returns a Downsampler that counts the number of samples in the interval
 func Count() storage.Downsampler {
-	return DownsampleWith(func(a, b float64) float64 {
+	return With(func(a, b float64) float64 {
 		if math.IsNaN(b) {
 			return a
 		}
@@ -69,7 +69,7 @@ func Count() storage.Downsampler {
 
 // Sum returns a Downsampler that adds the samples togher
 func Sum() storage.Downsampler {
-	return DownsampleWith(NaNSafe(func(a, b float64) float64 { return a + b }))
+	return With(NaNSafe(func(a, b float64) float64 { return a + b }))
 }
 
 // Mean returns a Downsampler that calculates the mean of all samples in the interval
@@ -111,7 +111,7 @@ func (d *meanDownsampler) AddSample(n int, v float64) {
 	}
 
 	cur := d.vals.ValueAt(n)
-	d.counts[n] += 1
+	d.counts[n]++
 	d.vals.SetValueAt(n, (cur*float64(count)+v)/float64(count+1))
 }
 
