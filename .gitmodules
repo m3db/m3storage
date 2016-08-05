@@ -10,3 +10,6 @@
 [submodule "vendor/github.com/stretchr/testify"]
 	path = vendor/github.com/stretchr/testify
 	url = https://github.com/stretchr/testify
+[submodule "vendor/github.com/facebookgo/clock"]
+	path = vendor/github.com/facebookgo/clock
+	url = https://github.com/facebookgo/clock
