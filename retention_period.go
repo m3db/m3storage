@@ -39,6 +39,21 @@ func NewRetentionPeriod(name string, duration time.Duration) RetentionPeriod {
 	}
 }
 
+// RetentionPeriodsByDuration is a sort.Interface for sorting RetentionPeriods by
+// Duration, with the shortest duration first
+type RetentionPeriodsByDuration []RetentionPeriod
+
+// Less compares two retention periods by their duration time
+func (rr RetentionPeriodsByDuration) Less(i, j int) bool {
+	return rr[i].Duration() < rr[j].Duration()
+}
+
+// Swap swaps two retention periods in the slice
+func (rr RetentionPeriodsByDuration) Swap(i, j int) { rr[i], rr[j] = rr[j], rr[i] }
+
+// Len returns the length of the retention rule slice
+func (rr RetentionPeriodsByDuration) Len() int { return len(rr) }
+
 type retentionPeriod struct {
 	name     string
 	duration time.Duration
