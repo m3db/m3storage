@@ -19,6 +19,7 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -27,6 +28,10 @@ import (
 	"github.com/facebookgo/clock"
 	"github.com/m3db/m3x/log"
 	"github.com/m3db/m3x/time"
+)
+
+var (
+	errInvalidQueryRange = errors.New("invalid query; from does not precede until")
 )
 
 // A RetentionPolicy describes the resolution and retention period for a set of
@@ -49,15 +54,25 @@ type RetentionPolicy interface {
 // retention period first
 type RetentionPoliciesByRetentionPeriod []RetentionPolicy
 
-// Less compares two retention rules by their cutoff time
+// Less compares two retention policies by their retention period.  Policies
+// with identical retention periods are sub-sorted by resolution, finest resolution first
 func (rr RetentionPoliciesByRetentionPeriod) Less(i, j int) bool {
-	return rr[i].RetentionPeriod().Duration() < rr[j].RetentionPeriod().Duration()
+	d1, d2 := rr[i].RetentionPeriod().Duration(), rr[j].RetentionPeriod().Duration()
+	if d1 < d2 {
+		return true
+	}
+
+	if d1 > d2 {
+		return false
+	}
+
+	return rr[i].Resolution().WindowSize() < rr[j].Resolution().WindowSize()
 }
 
-// Swap swaps two retention rules in the slice
+// Swap swaps two retention policies in the slice
 func (rr RetentionPoliciesByRetentionPeriod) Swap(i, j int) { rr[i], rr[j] = rr[j], rr[i] }
 
-// Len returns the length of the retention rule slice
+// Len returns the length of the retention policies slice
 func (rr RetentionPoliciesByRetentionPeriod) Len() int { return len(rr) }
 
 // NewRetentionPolicy creates a new RetentionPolicy
@@ -210,6 +225,10 @@ type retentionQueryPlanner struct {
 }
 
 func (p retentionQueryPlanner) buildRetentionQueryPlan(from, until time.Time, rules []RetentionRule) ([]query, error) {
+	if !from.Before(until) {
+		return nil, errInvalidQueryRange
+	}
+
 	now := p.clock.Now()
 
 	p.log.Debugf("building query plan from %v to %v over %d rules", from, until, len(rules))
@@ -301,8 +320,7 @@ func (p retentionQueryPlanner) buildRetentionQueryPlan(from, until time.Time, ru
 	coalescedQueries := make([]query, 0, len(queries))
 	for i := 1; i < len(queries); i++ {
 		if queries[i].RetentionPolicy.Equal(lastQuery.RetentionPolicy) {
-			lastQuery.Start = xtime.MinTime(queries[i].Start, lastQuery.Start)
-			lastQuery.End = xtime.MaxTime(queries[i].End, lastQuery.End)
+			lastQuery.Start = queries[i].Start
 			continue
 		}
 

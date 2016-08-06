@@ -74,14 +74,15 @@ func TestParseRetentionPolicy(t *testing.T) {
 
 func TestParseRetentionPolicies(t *testing.T) {
 	// NB(mmihic): These are out of order so will need to be sorted
-	policies, err := ParseRetentionPolicies("10s:2d,1min:7d,1s:6h,5min:14d")
+	policies, err := ParseRetentionPolicies("5s:2d,10s:2d,1min:7d,500ms:6h,5min:14d")
 	require.NoError(t, err)
 
 	for n, expected := range []struct {
 		resolution time.Duration
 		retention  time.Duration
 	}{
-		{time.Second, time.Hour * 6},
+		{time.Millisecond * 500, time.Hour * 6},
+		{time.Second * 5, time.Hour * 24 * 2},
 		{time.Second * 10, time.Hour * 24 * 2},
 		{time.Minute, time.Hour * 24 * 7},
 		{time.Minute * 5, time.Hour * 24 * 14},
@@ -198,8 +199,18 @@ func TestBuildRetentionQueryPlan(t *testing.T) {
 			},
 		},
 
-		// cutover / cutoff times leave gaps where datapoints fall out of any retention period
-		{name: "retention period gaps"},
+		// duplicate retention period
+		{name: "duplicate retention period",
+			from: day * 19, until: 0,
+			rules: []rule{
+				{policies: "10s:1d,1s:1d,1min:5d,5min:30d"},
+			},
+			results: []expectedQuery{
+				{"1s:1d", day, 0},
+				{"1min:5d", day * 5, day},
+				{"5min:30d", day * 19, day * 5},
+			},
+		},
 	}
 
 	for _, test := range tests {
