@@ -190,8 +190,7 @@ func TestBuildRetentionQueryPlan(t *testing.T) {
 				{policies: "10s:2d,5min:30d", cutoff: day * 6},
 			},
 			results: []expectedQuery{
-				{"10s:1d", time.Hour * 14, 0}, // TODO(mmihic): Coalesce overlapping policies
-				{"10s:1d", day, time.Hour * 14},
+				{"10s:1d", day, 0}, // NB(mmihic): Coalesced
 				{"1min:5d", day * 3, day},
 				{"1min:7d", day * 6, day * 3},
 				{"5min:30d", day * 19, day * 6},

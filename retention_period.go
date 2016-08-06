@@ -29,6 +29,9 @@ type RetentionPeriod interface {
 
 	// Duration is the duration of the retention period
 	Duration() time.Duration
+
+	// Equal checks whether to retention periods are equal
+	Equal(other RetentionPeriod) bool
 }
 
 // NewRetentionPeriod creates a new RetentionPeriod with the given name and duration
@@ -61,3 +64,6 @@ type retentionPeriod struct {
 
 func (r retentionPeriod) Name() string            { return r.name }
 func (r retentionPeriod) Duration() time.Duration { return r.duration }
+func (r retentionPeriod) Equal(other RetentionPeriod) bool {
+	return r.duration == other.Duration()
+}

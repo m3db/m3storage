@@ -40,6 +40,9 @@ type Resolution interface {
 
 	// TimeRangeContaining returns the time range containing the given time at the resolution
 	TimeRangeContaining(t time.Time) (time.Time, time.Time)
+
+	// Equal compares this resolution to another
+	Equal(other Resolution) bool
 }
 
 // NewResolution returns a new named resolution
@@ -64,4 +67,7 @@ func (r resolution) AlignToStart(t time.Time) time.Time { return t.Truncate(r.wi
 func (r resolution) TimeRangeContaining(t time.Time) (time.Time, time.Time) {
 	start := t.Truncate(r.windowSize)
 	return start, start.Add(r.windowSize)
+}
+func (r resolution) Equal(other Resolution) bool {
+	return r.windowSize == other.WindowSize() && r.precision == other.Precision()
 }

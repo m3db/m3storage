@@ -36,6 +36,9 @@ type RetentionPolicy interface {
 
 	// RetentionPeriod is the amount of time to retain the datapoints
 	RetentionPeriod() RetentionPeriod
+
+	// Equal checks whether this retention policy is equal to another
+	Equal(other RetentionPolicy) bool
 }
 
 // RetentionPoliciesByRetentionPeriod is a sort.Interface for sorting a slice of
@@ -143,6 +146,9 @@ type retentionPolicy struct {
 
 func (p retentionPolicy) Resolution() Resolution           { return p.r }
 func (p retentionPolicy) RetentionPeriod() RetentionPeriod { return p.p }
+func (p retentionPolicy) Equal(other RetentionPolicy) bool {
+	return p.r.Equal(other.Resolution()) && p.p.Equal(other.RetentionPeriod())
+}
 
 type retentionRule struct {
 	policies                []RetentionPolicy
@@ -261,5 +267,24 @@ func (p retentionQueryPlanner) buildRetentionQueryPlan(from, until time.Time, ru
 		}
 	}
 
-	return queries, nil
+	if len(queries) == 0 {
+		return queries, nil
+	}
+
+	// Coalesce queries for the same retention policy
+	lastQuery := queries[0]
+	coalescedQueries := make([]query, 0, len(queries))
+	for i := 1; i < len(queries); i++ {
+		if queries[i].RetentionPolicy.Equal(lastQuery.RetentionPolicy) {
+			lastQuery.Start = xtime.MinTime(queries[i].Start, lastQuery.Start)
+			lastQuery.End = xtime.MaxTime(queries[i].End, lastQuery.End)
+			continue
+		}
+
+		coalescedQueries = append(coalescedQueries, lastQuery)
+		lastQuery = queries[i]
+	}
+
+	coalescedQueries = append(coalescedQueries, lastQuery)
+	return coalescedQueries, nil
 }
