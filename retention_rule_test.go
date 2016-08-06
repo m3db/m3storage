@@ -20,7 +20,6 @@ package storage
 
 import (
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -73,15 +72,11 @@ func TestParseRetentionPolicy(t *testing.T) {
 	assert.Nil(t, p)
 }
 
-func TestRetentionPoliciesByRetentionPeriod(t *testing.T) {
-	var policies []RetentionPolicy
-	for _, spec := range []string{"10s:2d", "1min:7d", "1s:6h", "5min:14d"} {
-		policy, err := ParseRetentionPolicy(spec)
-		require.NoError(t, err, "invalid policy %s", spec)
-		policies = append(policies, policy)
-	}
+func TestParseRetentionPolicies(t *testing.T) {
+	// NB(mmihic): These are out of order so will need to be sorted
+	policies, err := ParseRetentionPolicies("10s:2d,1min:7d,1s:6h,5min:14d")
+	require.NoError(t, err)
 
-	sort.Sort(RetentionPoliciesByRetentionPeriod(policies))
 	for n, expected := range []struct {
 		resolution time.Duration
 		retention  time.Duration
@@ -234,16 +229,9 @@ func TestBuildRetentionQueryPlan(t *testing.T) {
 func buildRules(t *testing.T, now time.Time, rulesSpec []rule) []RetentionRule {
 	rules := make([]RetentionRule, 0, len(rulesSpec))
 	for _, spec := range rulesSpec {
-		policySpecs := strings.Split(spec.policies, ",")
-		policies := make([]RetentionPolicy, 0, len(policySpecs))
-		for _, policySpec := range policySpecs {
-			policy, err := ParseRetentionPolicy(policySpec)
-			require.NoError(t, err, "invalid policy %s", policySpec)
+		policies, err := ParseRetentionPolicies(spec.policies)
+		require.NoError(t, err, "invalid policies %s", spec.policies)
 
-			policies = append(policies, policy)
-		}
-
-		sort.Sort(RetentionPoliciesByRetentionPeriod(policies))
 		rule := NewRetentionRule().SetRetentionPolicies(policies)
 		if spec.cutoff > 0 {
 			rule.SetCutoffTime(now.Add(-spec.cutoff))

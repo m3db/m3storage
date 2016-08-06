@@ -20,6 +20,7 @@ package storage
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -87,6 +88,23 @@ func ParseRetentionPolicy(s string) (RetentionPolicy, error) {
 	p := NewRetentionPeriod(pDuration)
 
 	return NewRetentionPolicy(r, p), nil
+}
+
+// ParseRetentionPolicies parses a list of retention policies in stringified form
+func ParseRetentionPolicies(s string) ([]RetentionPolicy, error) {
+	policySpecs := strings.Split(s, ",")
+	policies := make([]RetentionPolicy, 0, len(policySpecs))
+	for _, spec := range policySpecs {
+		p, err := ParseRetentionPolicy(spec)
+		if err != nil {
+			return nil, err
+		}
+
+		policies = append(policies, p)
+	}
+
+	sort.Sort(RetentionPoliciesByRetentionPeriod(policies))
+	return policies, nil
 }
 
 // A RetentionRule defines the retention policies that apply to a set of
