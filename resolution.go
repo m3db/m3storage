@@ -19,15 +19,16 @@
 package storage
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/m3db/m3x/time"
 )
 
-// A Resolution is a named bucket size
+// A Resolution is a sample resolution for datapoints.
 type Resolution interface {
-	// Name is the name of the Resolution
-	Name() string
+	fmt.Stringer
 
 	// WindowSize is the size of the bucket represented by the resolution
 	WindowSize() time.Duration
@@ -45,22 +46,53 @@ type Resolution interface {
 	Equal(other Resolution) bool
 }
 
-// NewResolution returns a new named resolution
-func NewResolution(name string, windowSize time.Duration, precision xtime.Unit) Resolution {
+// NewResolution returns a new resolution
+func NewResolution(windowSize time.Duration, precision xtime.Unit) Resolution {
 	return resolution{
-		name:       name,
+		s:          fmt.Sprintf("%s@1%s", windowSize.String(), precision.String()),
 		windowSize: windowSize,
 		precision:  precision,
 	}
 }
 
+// ParseResolution parses a resolution string
+func ParseResolution(s string) (Resolution, error) {
+	precisionStart := strings.Index(s, "@")
+	if precisionStart == -1 {
+		windowSize, err := xtime.ParseExtendedDuration(s)
+		if err != nil {
+			return nil, err
+		}
+
+		return NewResolution(windowSize, xtime.Millisecond), nil
+	}
+
+	windowSize, err := xtime.ParseExtendedDuration(s[:precisionStart])
+	if err != nil {
+		return nil, err
+	}
+
+	dprecision, err := xtime.ParseExtendedDuration(s[precisionStart+1:])
+	if err != nil {
+		return nil, err
+	}
+
+	precision, err := xtime.UnitFromDuration(dprecision)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewResolution(windowSize, precision), nil
+
+}
+
 type resolution struct {
-	name       string
+	s          string
 	windowSize time.Duration
 	precision  xtime.Unit
 }
 
-func (r resolution) Name() string                       { return r.name }
+func (r resolution) String() string                     { return r.s }
 func (r resolution) WindowSize() time.Duration          { return r.windowSize }
 func (r resolution) Precision() xtime.Unit              { return r.precision }
 func (r resolution) AlignToStart(t time.Time) time.Time { return t.Truncate(r.windowSize) }

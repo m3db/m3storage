@@ -31,6 +31,8 @@ import (
 // A RetentionPolicy describes the resolution and retention period for a set of
 // datapoints (e.g. 1min at 30d)
 type RetentionPolicy interface {
+	fmt.Stringer
+
 	// Resolution is the resolution at which the datapoints will be stored
 	Resolution() Resolution
 
@@ -59,27 +61,30 @@ func (rr RetentionPoliciesByRetentionPeriod) Len() int { return len(rr) }
 
 // NewRetentionPolicy creates a new RetentionPolicy
 func NewRetentionPolicy(r Resolution, p RetentionPeriod) RetentionPolicy {
-	return retentionPolicy{r: r, p: p}
+	return retentionPolicy{
+		s: fmt.Sprintf("%s:%s", r.String(), p.String()),
+		r: r,
+		p: p,
+	}
 }
 
-// ParseRetentionPolicy parses a retention policy ion the form of resolution:period
-func ParseRetentionPolicy(s string, precision xtime.Unit) (RetentionPolicy, error) {
+// ParseRetentionPolicy parses a retention policy in the form of resolution:period
+func ParseRetentionPolicy(s string) (RetentionPolicy, error) {
 	parts := strings.Split(s, ":")
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid retention policy %s, expect in form 10s:7d", s)
 	}
 
-	rDuration, err := xtime.ParseExtendedDuration(parts[0])
+	r, err := ParseResolution(parts[0])
 	if err != nil {
 		return nil, fmt.Errorf("invalid retention policy %s, invalid resolution %s", s, parts[0])
 	}
-	r := NewResolution(parts[0], rDuration, precision)
 
 	pDuration, err := xtime.ParseExtendedDuration(parts[1])
 	if err != nil {
 		return nil, fmt.Errorf("invalid retention policy %s, invalid retention period %s", s, parts[1])
 	}
-	p := NewRetentionPeriod(parts[1], pDuration)
+	p := NewRetentionPeriod(pDuration)
 
 	return NewRetentionPolicy(r, p), nil
 }
@@ -140,10 +145,12 @@ type RetentionRuleProvider interface {
 }
 
 type retentionPolicy struct {
+	s string
 	r Resolution
 	p RetentionPeriod
 }
 
+func (p retentionPolicy) String() string                   { return p.s }
 func (p retentionPolicy) Resolution() Resolution           { return p.r }
 func (p retentionPolicy) RetentionPeriod() RetentionPeriod { return p.p }
 func (p retentionPolicy) Equal(other RetentionPolicy) bool {
@@ -235,13 +242,13 @@ func (p retentionQueryPlanner) buildRetentionQueryPlan(from, until time.Time, ru
 
 			if !query.Range.Start.Before(ruleEnd) {
 				p.log.Debugf("policy %d (%s:%s) starts (%s) after end of rule (%s), does not apply",
-					n, policy.Resolution().Name(), policy.RetentionPeriod().Name(), query.Range.Start, ruleEnd)
+					n, policy.Resolution(), policy.RetentionPeriod(), query.Range.Start, ruleEnd)
 				continue
 			}
 
 			if query.Range.End.Before(ruleStart) {
 				p.log.Debugf("policy %d (%s:%s) ends (%s) before the start of the rule (%s), no more policies apply",
-					n, policy.Resolution().Name(), policy.RetentionPeriod().Name(), query.Range.End, ruleStart)
+					n, policy.Resolution(), policy.RetentionPeriod(), query.Range.End, ruleStart)
 				break
 			}
 
@@ -254,7 +261,7 @@ func (p retentionQueryPlanner) buildRetentionQueryPlan(from, until time.Time, ru
 			}
 
 			p.log.Debugf("policy %d (%s:%s) applies from %s until %s (%s)",
-				n, policy.Resolution().Name(), policy.RetentionPeriod().Name(),
+				n, policy.Resolution(), policy.RetentionPeriod(),
 				query.Range.Start, query.Range.End, query.Range.End.Sub(query.Range.Start))
 
 			if query.Range.IsEmpty() {

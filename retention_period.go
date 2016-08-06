@@ -19,13 +19,13 @@
 package storage
 
 import (
+	"fmt"
 	"time"
 )
 
 // A RetentionPeriod is a named amount of time to retain a given metric
 type RetentionPeriod interface {
-	// Name is the name of the retention period
-	Name() string
+	fmt.Stringer
 
 	// Duration is the duration of the retention period
 	Duration() time.Duration
@@ -35,9 +35,8 @@ type RetentionPeriod interface {
 }
 
 // NewRetentionPeriod creates a new RetentionPeriod with the given name and duration
-func NewRetentionPeriod(name string, duration time.Duration) RetentionPeriod {
+func NewRetentionPeriod(duration time.Duration) RetentionPeriod {
 	return retentionPeriod{
-		name:     name,
 		duration: duration,
 	}
 }
@@ -58,11 +57,10 @@ func (rr RetentionPeriodsByDuration) Swap(i, j int) { rr[i], rr[j] = rr[j], rr[i
 func (rr RetentionPeriodsByDuration) Len() int { return len(rr) }
 
 type retentionPeriod struct {
-	name     string
 	duration time.Duration
 }
 
-func (r retentionPeriod) Name() string            { return r.name }
+func (r retentionPeriod) String() string          { return r.duration.String() }
 func (r retentionPeriod) Duration() time.Duration { return r.duration }
 func (r retentionPeriod) Equal(other RetentionPeriod) bool {
 	return r.duration == other.Duration()

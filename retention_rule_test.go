@@ -48,21 +48,27 @@ func TestRetentionRulesByCutoffTime(t *testing.T) {
 }
 
 func TestParseRetentionPolicy(t *testing.T) {
-	p, err := ParseRetentionPolicy("10s:2d", xtime.Millisecond)
+	p, err := ParseRetentionPolicy("10s:2d")
 	require.NoError(t, err)
 	assert.Equal(t, (time.Second * 10).String(), p.Resolution().WindowSize().String())
 	assert.Equal(t, xtime.Millisecond, p.Resolution().Precision())
 	assert.Equal(t, (time.Hour * 24 * 2).String(), p.RetentionPeriod().Duration().String())
 
-	p, err = ParseRetentionPolicy("10monkeys:2d", xtime.Millisecond)
+	p, err = ParseRetentionPolicy("1min@1s:30d")
+	require.NoError(t, err)
+	assert.Equal(t, (time.Minute).String(), p.Resolution().WindowSize().String())
+	assert.Equal(t, xtime.Second, p.Resolution().Precision())
+	assert.Equal(t, (time.Hour * 24 * 30).String(), p.RetentionPeriod().Duration().String())
+
+	p, err = ParseRetentionPolicy("10monkeys:2d")
 	require.Error(t, err)
 	assert.Nil(t, p)
 
-	p, err = ParseRetentionPolicy("10s:10monkeys", xtime.Millisecond)
+	p, err = ParseRetentionPolicy("10s:10monkeys")
 	require.Error(t, err)
 	assert.Nil(t, p)
 
-	p, err = ParseRetentionPolicy("10s", xtime.Millisecond)
+	p, err = ParseRetentionPolicy("10s")
 	require.Error(t, err)
 	assert.Nil(t, p)
 }
@@ -70,7 +76,7 @@ func TestParseRetentionPolicy(t *testing.T) {
 func TestRetentionPoliciesByRetentionPeriod(t *testing.T) {
 	var policies []RetentionPolicy
 	for _, spec := range []string{"10s:2d", "1min:7d", "1s:6h", "5min:14d"} {
-		policy, err := ParseRetentionPolicy(spec, xtime.Millisecond)
+		policy, err := ParseRetentionPolicy(spec)
 		require.NoError(t, err, "invalid policy %s", spec)
 		policies = append(policies, policy)
 	}
@@ -215,21 +221,11 @@ func TestBuildRetentionQueryPlan(t *testing.T) {
 			}
 
 			expected, actual := expectedPlan[i], actualPlan[i]
-			require.Equal(t,
-				expected.RetentionPolicy.Resolution().Name(),
-				actual.RetentionPolicy.Resolution().Name(),
-				"invalid retention policy resolution for %s[%d]", test.name, i)
-			require.Equal(t,
-				expected.RetentionPolicy.RetentionPeriod().Name(),
-				actual.RetentionPolicy.RetentionPeriod().Name(),
-				"invalid retention policy retention period for %s[%d]", test.name, i)
-			require.Equal(t,
-				now.Sub(expected.Start).String(),
-				now.Sub(actual.Start).String(),
+			require.Equal(t, expected.RetentionPolicy.String(), actual.RetentionPolicy.String(),
+				"invalid retention policy for %s[%d]", test.name, i)
+			require.Equal(t, now.Sub(expected.Start).String(), now.Sub(actual.Start).String(),
 				"invalid from for %s[%d]", test.name, i)
-			require.Equal(t,
-				now.Sub(expected.End).String(),
-				now.Sub(actual.End).String(),
+			require.Equal(t, now.Sub(expected.End).String(), now.Sub(actual.End).String(),
 				"invalid until for %s[%d]", test.name, i)
 		}
 	}
@@ -241,7 +237,7 @@ func buildRules(t *testing.T, now time.Time, rulesSpec []rule) []RetentionRule {
 		policySpecs := strings.Split(spec.policies, ",")
 		policies := make([]RetentionPolicy, 0, len(policySpecs))
 		for _, policySpec := range policySpecs {
-			policy, err := ParseRetentionPolicy(policySpec, xtime.Millisecond)
+			policy, err := ParseRetentionPolicy(policySpec)
 			require.NoError(t, err, "invalid policy %s", policySpec)
 
 			policies = append(policies, policy)
@@ -265,7 +261,7 @@ func buildRules(t *testing.T, now time.Time, rulesSpec []rule) []RetentionRule {
 func buildExpectedQueries(t *testing.T, now time.Time, expected []expectedQuery) []query {
 	queries := make([]query, 0, len(expected))
 	for _, q := range expected {
-		policy, err := ParseRetentionPolicy(q.policy, xtime.Millisecond)
+		policy, err := ParseRetentionPolicy(q.policy)
 		require.NoError(t, err, "invalid policy %s", q.policy)
 
 		queries = append(queries, query{
