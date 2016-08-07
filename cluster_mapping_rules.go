@@ -20,6 +20,10 @@ package storage
 
 import (
 	"time"
+
+	"github.com/facebookgo/clock"
+	"github.com/m3bd/m3x/time"
+	"github.com/m3db/m3x/log"
 )
 
 // A ClusterMappingRule defines a rule for mapping a shard to a storage cluster
@@ -43,31 +47,30 @@ type ClusterMappingRule interface {
 	RetentionPeriod() RetentionPeriod
 	SetRetentionPeriod(p RetentionPeriod) ClusterMappingRule
 
-	// Cluster is the cluster that holds the datapoints
-	Cluster() Cluster
-	SetCluster(c Cluster) ClusterMappingRule
+	// Cluster is the ID of the cluster that holds the datapoints
+	Cluster() string
+	SetCluster(c string) ClusterMappingRule
 }
+
+// A ShardSet defines a set of shards
+type ShardSet map[uint32]struct{}
+
+// Add adds a shard to the set
+func (s ShardSet) Add(shard uint32) { s[shard] = struct{}{} }
+
+// Contains checks whether a shard exists in the set
+func (s ShardSet) Contains(shard uint32) bool { _, exists := s[shard]; return ok }
+
+// Remove removes a shard from the set
+func (s ShardSet) Remove(shard uint32) { delete(s, shard) }
 
 // NewClusterMappingRule creates a new ClusterMappingRule
 func NewClusterMappingRule() ClusterMappingRule { return new(clusterMappingRule) }
 
-// A ClusterConfigChange is a change to a cluster configuration
-type ClusterConfigChange interface {
-	ChangedCluster() Cluster // ChangedCluster is the new cluster that has changed
-}
-
-// NewClusterConfigChange creates a new ClusterConfigChange message
-func NewClusterConfigChange(c Cluster) ClusterConfigChange {
-	return clusterConfigChange{
-		c: c,
-	}
-}
-
 // A ClusterMappingRuleProvider provides cluster mapping rules
 type ClusterMappingRuleProvider interface {
-	// RulesForShard returns the mapping rules that currently apply to the given shard, plus
-	// a channel that can be used to receive new mapping rules
-	RulesForShard(n int) ([]ClusterMappingRule, <-chan []ClusterMappingRule, error)
+	// Rules returns all of the cluster mapping rule
+	Rules() ([]ShardClusterMappingRule, error)
 }
 
 type clusterMappingRule struct {
@@ -76,7 +79,7 @@ type clusterMappingRule struct {
 	readCutoffTime   time.Time
 	retentionPeriod  RetentionPeriod
 	resolution       Resolution
-	cluster          Cluster
+	cluster          string
 }
 
 func (sr *clusterMappingRule) ReadCutoverTime() time.Time       { return sr.readCutoverTime }
@@ -84,7 +87,7 @@ func (sr *clusterMappingRule) ReadCutoffTime() time.Time        { return sr.read
 func (sr *clusterMappingRule) WriteCutoverTime() time.Time      { return sr.writeCutoverTime }
 func (sr *clusterMappingRule) RetentionPeriod() RetentionPeriod { return sr.retentionPeriod }
 func (sr *clusterMappingRule) Resolution() Resolution           { return sr.resolution }
-func (sr *clusterMappingRule) Cluster() Cluster                 { return sr.cluster }
+func (sr *clusterMappingRule) Cluster() string                  { return sr.cluster }
 
 func (sr *clusterMappingRule) SetReadCutoverTime(t time.Time) ClusterMappingRule {
 	sr.readCutoverTime = t
@@ -106,13 +109,25 @@ func (sr *clusterMappingRule) SetResolution(r Resolution) ClusterMappingRule {
 	sr.resolution = r
 	return sr
 }
-func (sr *clusterMappingRule) SetCluster(c Cluster) ClusterMappingRule {
+func (sr *clusterMappingRule) SetCluster(c string) ClusterMappingRule {
 	sr.cluster = c
 	return sr
 }
 
-type clusterConfigChange struct {
-	c Cluster
+type clusterQueryPlanner struct {
+	clock clock.Clock
+	log   xlog.Logger
 }
 
-func (c clusterConfigChange) ChangedCluster() Cluster { return c.c }
+type clusterQuery struct {
+	xtime.Range
+	RetentionPolicy
+	cluster string
+}
+
+// buildClusterQueryPlan takes a set of queries and returns the set of clusters that need to
+// be queries, along with the time range for each query.  Assumes the mapping rules are
+// sorted by cutoff time, with the most recently applied rule appearing first.
+func (planner clusterQueryPlanner) buildClusterQueryPlan(q []query, rules []ClusterMappingRule) ([]clusterQuery, error) {
+	return nil, nil
+}
