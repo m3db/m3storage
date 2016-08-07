@@ -56,3 +56,59 @@ func TestParseResolutionErrors(t *testing.T) {
 		require.Error(t, err, "expected error for %s", test)
 	}
 }
+
+func TestResolutionAlignToStart(t *testing.T) {
+	now := time.Time{} // Start of epoch
+	tests := []struct {
+		r        Resolution
+		toAlign  time.Time
+		expected time.Time
+	}{
+		{NewResolution(time.Second*10, xtime.Millisecond),
+			now.Add(time.Second * 12),
+			now.Add(time.Second * 10)},
+		{NewResolution(time.Second*10, xtime.Millisecond),
+			now.Add(time.Minute*24 + time.Second*14),
+			now.Add(time.Minute*24 + time.Second*10)},
+		{NewResolution(time.Minute, xtime.Millisecond),
+			now.Add(time.Minute * 12),
+			now.Add(time.Minute * 12)},
+		{NewResolution(time.Minute, xtime.Millisecond),
+			now.Add(time.Minute*12 + time.Second*14),
+			now.Add(time.Minute * 12)},
+	}
+
+	for _, test := range tests {
+		actual := test.r.AlignToStart(test.toAlign)
+		require.Equal(t, actual.String(), test.expected.String())
+	}
+}
+
+func TestResolutionWindowContaining(t *testing.T) {
+	now := time.Time{} // Start of epoch
+	tests := []struct {
+		r                          Resolution
+		t                          time.Time
+		expectedStart, expectedEnd time.Time
+	}{
+		{NewResolution(time.Second*10, xtime.Millisecond),
+			now.Add(time.Second * 12),
+			now.Add(time.Second * 10), now.Add(time.Second * 20)},
+		{NewResolution(time.Second*10, xtime.Millisecond),
+			now.Add(time.Minute*24 + time.Second*14),
+			now.Add(time.Minute*24 + time.Second*10), now.Add(time.Minute*24 + time.Second*20)},
+		{NewResolution(time.Minute, xtime.Millisecond),
+			now.Add(time.Minute * 12),
+			now.Add(time.Minute * 12), now.Add(time.Minute * 13)},
+		{NewResolution(time.Minute, xtime.Millisecond),
+			now.Add(time.Minute*12 + time.Second*14),
+			now.Add(time.Minute * 12), now.Add(time.Minute * 13)},
+	}
+
+	for _, test := range tests {
+		actual := test.r.WindowContaining(test.t)
+		require.Equal(t, actual.Start.String(), test.expectedStart.String())
+		require.Equal(t, actual.End.String(), test.expectedEnd.String())
+	}
+
+}

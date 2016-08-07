@@ -39,8 +39,8 @@ type Resolution interface {
 	// AlignToStart aligns the given time to the start of the bucket containing that time
 	AlignToStart(t time.Time) time.Time
 
-	// TimeRangeContaining returns the time range containing the given time at the resolution
-	TimeRangeContaining(t time.Time) (time.Time, time.Time)
+	// WindowContaining returns the time range containing the given time at the resolution
+	WindowContaining(t time.Time) xtime.Range
 
 	// Equal compares this resolution to another
 	Equal(other Resolution) bool
@@ -96,9 +96,12 @@ func (r resolution) String() string                     { return r.s }
 func (r resolution) WindowSize() time.Duration          { return r.windowSize }
 func (r resolution) Precision() xtime.Unit              { return r.precision }
 func (r resolution) AlignToStart(t time.Time) time.Time { return t.Truncate(r.windowSize) }
-func (r resolution) TimeRangeContaining(t time.Time) (time.Time, time.Time) {
+func (r resolution) WindowContaining(t time.Time) xtime.Range {
 	start := t.Truncate(r.windowSize)
-	return start, start.Add(r.windowSize)
+	return xtime.Range{
+		Start: start,
+		End:   start.Add(r.windowSize),
+	}
 }
 func (r resolution) Equal(other Resolution) bool {
 	return r.windowSize == other.WindowSize() && r.precision == other.Precision()
