@@ -58,6 +58,16 @@ func (s series) Close() error {
 	return nil
 }
 
+// NewSeries returns a new series wrapped around a set of values
+func NewSeries(start time.Time, step time.Duration, vals SeriesValues, pool SeriesValuesPool) Series {
+	return series{
+		startTime: start,
+		stepSize:  step,
+		values:    vals,
+		vp:        pool,
+	}
+}
+
 // SeriesValues hold the underlying values in a series.  Values can often be large, and
 // benefit from direct pooling.
 type SeriesValues interface {
