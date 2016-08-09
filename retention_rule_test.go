@@ -240,9 +240,7 @@ func TestBuildRetentionQueryPlan(t *testing.T) {
 func buildRules(t *testing.T, now time.Time, rulesSpec []rule) []RetentionRule {
 	rules := make([]RetentionRule, 0, len(rulesSpec))
 	for _, spec := range rulesSpec {
-		policies, err := ParseRetentionPolicies(spec.policies)
-		require.NoError(t, err, "invalid policies %s", spec.policies)
-
+		policies := MustParseRetentionPolicies(spec.policies)
 		rule := NewRetentionRule().SetRetentionPolicies(policies)
 		if spec.cutoff > 0 {
 			rule.SetCutoffTime(now.Add(-spec.cutoff))
@@ -260,15 +258,12 @@ func buildRules(t *testing.T, now time.Time, rulesSpec []rule) []RetentionRule {
 func buildExpectedQueries(t *testing.T, now time.Time, expected []expectedQuery) []query {
 	queries := make([]query, 0, len(expected))
 	for _, q := range expected {
-		policy, err := ParseRetentionPolicy(q.policy)
-		require.NoError(t, err, "invalid policy %s", q.policy)
-
 		queries = append(queries, query{
 			Range: xtime.Range{
 				Start: now.Add(-q.from),
 				End:   now.Add(-q.until),
 			},
-			RetentionPolicy: policy,
+			RetentionPolicy: MustParseRetentionPolicy(q.policy),
 		})
 	}
 
