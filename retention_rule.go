@@ -105,6 +105,17 @@ func ParseRetentionPolicy(s string) (RetentionPolicy, error) {
 	return NewRetentionPolicy(r, p), nil
 }
 
+// MustParseRetentionPolicy parses a retention policy, panicking if the policy
+// cannot be parsed
+func MustParseRetentionPolicy(s string) RetentionPolicy {
+	policy, err := ParseRetentionPolicy(s)
+	if err != nil {
+		panic(err)
+	}
+
+	return policy
+}
+
 // ParseRetentionPolicies parses a list of retention policies in stringified form
 func ParseRetentionPolicies(s string) ([]RetentionPolicy, error) {
 	policySpecs := strings.Split(s, ",")
@@ -120,6 +131,17 @@ func ParseRetentionPolicies(s string) ([]RetentionPolicy, error) {
 
 	sort.Sort(RetentionPoliciesByRetentionPeriod(policies))
 	return policies, nil
+}
+
+// MustParseRetentionPolicies parses a list of retention policies, panicking if
+// the policies cannot be parsed
+func MustParseRetentionPolicies(s string) []RetentionPolicy {
+	policies, err := ParseRetentionPolicies(s)
+	if err != nil {
+		panic(err)
+	}
+
+	return policies
 }
 
 // A RetentionRule defines the retention policies that apply to a set of
