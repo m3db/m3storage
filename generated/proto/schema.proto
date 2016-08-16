@@ -6,7 +6,7 @@ import "google/protobuf/timestamp.proto";
 
 // Placement defines an entire storage placement
 message Placement {
-	repeated Database databases = 1;
+	map<string, Database> databases = 1;
 	PlacementChanges pending_changes = 2;
 }
 
@@ -39,7 +39,7 @@ message ClusterShardAssignment {
 
 // DatabaseLayout defines the current layout of the database
 message DatabaseLayout {
-	repeated Cluster clusters = 1;
+	map<string, Cluster> clusters = 1;
 	map<string, ClusterShardAssignment> shard_assigments = 2;
 	google.protobuf.Timestamp generated_at  = 9;
 }

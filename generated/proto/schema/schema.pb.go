@@ -74,15 +74,15 @@ func (x ClusterStatus) String() string {
 
 // Placement defines an entire storage placement
 type Placement struct {
-	Databases      []*Database       `protobuf:"bytes,1,rep,name=databases" json:"databases,omitempty"`
-	PendingChanges *PlacementChanges `protobuf:"bytes,2,opt,name=pending_changes" json:"pending_changes,omitempty"`
+	Databases      map[string]*Database `protobuf:"bytes,1,rep,name=databases" json:"databases,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	PendingChanges *PlacementChanges    `protobuf:"bytes,2,opt,name=pending_changes" json:"pending_changes,omitempty"`
 }
 
 func (m *Placement) Reset()         { *m = Placement{} }
 func (m *Placement) String() string { return proto.CompactTextString(m) }
 func (*Placement) ProtoMessage()    {}
 
-func (m *Placement) GetDatabases() []*Database {
+func (m *Placement) GetDatabases() map[string]*Database {
 	if m != nil {
 		return m.Databases
 	}
@@ -190,7 +190,7 @@ func (*ClusterShardAssignment) ProtoMessage()    {}
 
 // DatabaseLayout defines the current layout of the database
 type DatabaseLayout struct {
-	Clusters        []*Cluster                         `protobuf:"bytes,1,rep,name=clusters" json:"clusters,omitempty"`
+	Clusters        map[string]*Cluster                `protobuf:"bytes,1,rep,name=clusters" json:"clusters,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	ShardAssigments map[string]*ClusterShardAssignment `protobuf:"bytes,2,rep,name=shard_assigments" json:"shard_assigments,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	GeneratedAt     *google_protobuf.Timestamp         `protobuf:"bytes,9,opt,name=generated_at" json:"generated_at,omitempty"`
 }
@@ -199,7 +199,7 @@ func (m *DatabaseLayout) Reset()         { *m = DatabaseLayout{} }
 func (m *DatabaseLayout) String() string { return proto.CompactTextString(m) }
 func (*DatabaseLayout) ProtoMessage()    {}
 
-func (m *DatabaseLayout) GetClusters() []*Cluster {
+func (m *DatabaseLayout) GetClusters() map[string]*Cluster {
 	if m != nil {
 		return m.Clusters
 	}
