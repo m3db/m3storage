@@ -29,6 +29,9 @@ It is generated from these files:
 	schema.proto
 
 It has these top-level messages:
+	Placement
+	PlacementChanges
+	DatabaseAdd
 	Database
 	ClusterShardAssignment
 	DatabaseLayout
@@ -67,6 +70,62 @@ var ClusterStatus_value = map[string]int32{
 
 func (x ClusterStatus) String() string {
 	return proto.EnumName(ClusterStatus_name, int32(x))
+}
+
+// Placement defines an entire storage placement
+type Placement struct {
+	Databases      []*Database       `protobuf:"bytes,1,rep,name=databases" json:"databases,omitempty"`
+	PendingChanges *PlacementChanges `protobuf:"bytes,2,opt,name=pending_changes" json:"pending_changes,omitempty"`
+}
+
+func (m *Placement) Reset()         { *m = Placement{} }
+func (m *Placement) String() string { return proto.CompactTextString(m) }
+func (*Placement) ProtoMessage()    {}
+
+func (m *Placement) GetDatabases() []*Database {
+	if m != nil {
+		return m.Databases
+	}
+	return nil
+}
+
+func (m *Placement) GetPendingChanges() *PlacementChanges {
+	if m != nil {
+		return m.PendingChanges
+	}
+	return nil
+}
+
+// PlacementChanges defines overall changes to the placement (database adds and removes)
+type PlacementChanges struct {
+	DatabaseAdds *DatabaseAdd `protobuf:"bytes,1,opt,name=database_adds" json:"database_adds,omitempty"`
+}
+
+func (m *PlacementChanges) Reset()         { *m = PlacementChanges{} }
+func (m *PlacementChanges) String() string { return proto.CompactTextString(m) }
+func (*PlacementChanges) ProtoMessage()    {}
+
+func (m *PlacementChanges) GetDatabaseAdds() *DatabaseAdd {
+	if m != nil {
+		return m.DatabaseAdds
+	}
+	return nil
+}
+
+// DatabaseAdd is an update that adds a database
+type DatabaseAdd struct {
+	Database *Database `protobuf:"bytes,1,opt,name=database" json:"database,omitempty"`
+}
+
+func (m *DatabaseAdd) Reset()         { *m = DatabaseAdd{} }
+func (m *DatabaseAdd) String() string { return proto.CompactTextString(m) }
+func (*DatabaseAdd) ProtoMessage()    {}
+
+func (m *DatabaseAdd) GetDatabase() *Database {
+	if m != nil {
+		return m.Database
+	}
+	return nil
 }
 
 // Database defines a single database

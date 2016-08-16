@@ -4,6 +4,22 @@ package schema;
 
 import "google/protobuf/timestamp.proto";
 
+// Placement defines an entire storage placement
+message Placement {
+	repeated Database databases = 1;
+	PlacementChanges pending_changes = 2;
+}
+
+// PlacementChanges defines overall changes to the placement (database adds and removes)
+message PlacementChanges {
+	DatabaseAdd database_adds = 1;
+}
+
+// DatabaseAdd is an update that adds a database
+message DatabaseAdd {
+	Database database = 1;
+}
+
 // Database defines a single database
 message Database {
 	string name = 1;
