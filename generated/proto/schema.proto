@@ -8,7 +8,7 @@ import "google/protobuf/timestamp.proto";
 message Database {
 	string name = 1;
 	int32 num_shards = 2;
-	repeated int32 retention_periods = 3;
+	repeated int32 max_retention_in_secs = 3;
 	google.protobuf.Timestamp read_cutover_time = 4;
 	google.protobuf.Timestamp write_cutover_time = 5;
 	google.protobuf.Timestamp cutover_complete_time = 6;

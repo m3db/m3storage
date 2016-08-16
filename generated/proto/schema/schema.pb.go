@@ -73,7 +73,7 @@ func (x ClusterStatus) String() string {
 type Database struct {
 	Name                string                     `protobuf:"bytes,1,opt,name=name" json:"name,omitempty"`
 	NumShards           int32                      `protobuf:"varint,2,opt,name=num_shards" json:"num_shards,omitempty"`
-	RetentionPeriods    []int32                    `protobuf:"varint,3,rep,name=retention_periods" json:"retention_periods,omitempty"`
+	MaxRetentionInSecs  []int32                    `protobuf:"varint,3,rep,name=max_retention_in_secs" json:"max_retention_in_secs,omitempty"`
 	ReadCutoverTime     *google_protobuf.Timestamp `protobuf:"bytes,4,opt,name=read_cutover_time" json:"read_cutover_time,omitempty"`
 	WriteCutoverTime    *google_protobuf.Timestamp `protobuf:"bytes,5,opt,name=write_cutover_time" json:"write_cutover_time,omitempty"`
 	CutoverCompleteTime *google_protobuf.Timestamp `protobuf:"bytes,6,opt,name=cutover_complete_time" json:"cutover_complete_time,omitempty"`
