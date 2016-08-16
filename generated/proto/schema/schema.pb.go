@@ -43,7 +43,6 @@ It has these top-level messages:
 package schema
 
 import proto "github.com/golang/protobuf/proto"
-import google_protobuf "google/protobuf/timestamp.pb"
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ = proto.Marshal
@@ -130,40 +129,21 @@ func (m *DatabaseAdd) GetDatabase() *Database {
 
 // Database defines a single database
 type Database struct {
-	Name                string                     `protobuf:"bytes,1,opt,name=name" json:"name,omitempty"`
-	NumShards           int32                      `protobuf:"varint,2,opt,name=num_shards" json:"num_shards,omitempty"`
-	MaxRetentionInSecs  []int32                    `protobuf:"varint,3,rep,name=max_retention_in_secs" json:"max_retention_in_secs,omitempty"`
-	ReadCutoverTime     *google_protobuf.Timestamp `protobuf:"bytes,4,opt,name=read_cutover_time" json:"read_cutover_time,omitempty"`
-	WriteCutoverTime    *google_protobuf.Timestamp `protobuf:"bytes,5,opt,name=write_cutover_time" json:"write_cutover_time,omitempty"`
-	CutoverCompleteTime *google_protobuf.Timestamp `protobuf:"bytes,6,opt,name=cutover_complete_time" json:"cutover_complete_time,omitempty"`
-	CurrentLayout       *DatabaseLayout            `protobuf:"bytes,7,opt,name=current_layout" json:"current_layout,omitempty"`
-	PendingChanges      *DatabaseChanges           `protobuf:"bytes,8,opt,name=pending_changes" json:"pending_changes,omitempty"`
+	Name                string           `protobuf:"bytes,1,opt,name=name" json:"name,omitempty"`
+	NumShards           int32            `protobuf:"varint,2,opt,name=num_shards" json:"num_shards,omitempty"`
+	MaxRetentionInSecs  []int32          `protobuf:"varint,3,rep,name=max_retention_in_secs" json:"max_retention_in_secs,omitempty"`
+	ReadCutoverTime     int64            `protobuf:"varint,4,opt,name=read_cutover_time" json:"read_cutover_time,omitempty"`
+	WriteCutoverTime    int64            `protobuf:"varint,5,opt,name=write_cutover_time" json:"write_cutover_time,omitempty"`
+	CutoverCompleteTime int64            `protobuf:"varint,6,opt,name=cutover_complete_time" json:"cutover_complete_time,omitempty"`
+	CurrentLayout       *DatabaseLayout  `protobuf:"bytes,7,opt,name=current_layout" json:"current_layout,omitempty"`
+	PendingChanges      *DatabaseChanges `protobuf:"bytes,8,opt,name=pending_changes" json:"pending_changes,omitempty"`
+	CreatedAt           int64            `protobuf:"varint,9,opt,name=created_at" json:"created_at,omitempty"`
+	LastUpdatedAt       int64            `protobuf:"varint,10,opt,name=last_updated_at" json:"last_updated_at,omitempty"`
 }
 
 func (m *Database) Reset()         { *m = Database{} }
 func (m *Database) String() string { return proto.CompactTextString(m) }
 func (*Database) ProtoMessage()    {}
-
-func (m *Database) GetReadCutoverTime() *google_protobuf.Timestamp {
-	if m != nil {
-		return m.ReadCutoverTime
-	}
-	return nil
-}
-
-func (m *Database) GetWriteCutoverTime() *google_protobuf.Timestamp {
-	if m != nil {
-		return m.WriteCutoverTime
-	}
-	return nil
-}
-
-func (m *Database) GetCutoverCompleteTime() *google_protobuf.Timestamp {
-	if m != nil {
-		return m.CutoverCompleteTime
-	}
-	return nil
-}
 
 func (m *Database) GetCurrentLayout() *DatabaseLayout {
 	if m != nil {
@@ -192,7 +172,7 @@ func (*ClusterShardAssignment) ProtoMessage()    {}
 type DatabaseLayout struct {
 	Clusters        map[string]*Cluster                `protobuf:"bytes,1,rep,name=clusters" json:"clusters,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	ShardAssigments map[string]*ClusterShardAssignment `protobuf:"bytes,2,rep,name=shard_assigments" json:"shard_assigments,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	GeneratedAt     *google_protobuf.Timestamp         `protobuf:"bytes,9,opt,name=generated_at" json:"generated_at,omitempty"`
+	GeneratedAt     int64                              `protobuf:"varint,9,opt,name=generated_at" json:"generated_at,omitempty"`
 }
 
 func (m *DatabaseLayout) Reset()         { *m = DatabaseLayout{} }
@@ -213,31 +193,17 @@ func (m *DatabaseLayout) GetShardAssigments() map[string]*ClusterShardAssignment
 	return nil
 }
 
-func (m *DatabaseLayout) GetGeneratedAt() *google_protobuf.Timestamp {
-	if m != nil {
-		return m.GeneratedAt
-	}
-	return nil
-}
-
 // Cluster is the immutable metadata for a cluster
 type Cluster struct {
-	Name      string                     `protobuf:"bytes,1,opt,name=name" json:"name,omitempty"`
-	Type      string                     `protobuf:"bytes,2,opt,name=type" json:"type,omitempty"`
-	Status    ClusterStatus              `protobuf:"varint,3,opt,name=status,enum=schema.ClusterStatus" json:"status,omitempty"`
-	CreatedAt *google_protobuf.Timestamp `protobuf:"bytes,4,opt,name=created_at" json:"created_at,omitempty"`
+	Name      string        `protobuf:"bytes,1,opt,name=name" json:"name,omitempty"`
+	Type      string        `protobuf:"bytes,2,opt,name=type" json:"type,omitempty"`
+	Status    ClusterStatus `protobuf:"varint,3,opt,name=status,enum=schema.ClusterStatus" json:"status,omitempty"`
+	CreatedAt int64         `protobuf:"varint,4,opt,name=created_at" json:"created_at,omitempty"`
 }
 
 func (m *Cluster) Reset()         { *m = Cluster{} }
 func (m *Cluster) String() string { return proto.CompactTextString(m) }
 func (*Cluster) ProtoMessage()    {}
-
-func (m *Cluster) GetCreatedAt() *google_protobuf.Timestamp {
-	if m != nil {
-		return m.CreatedAt
-	}
-	return nil
-}
 
 // DatabaseChanges capture pending changes to the database
 type DatabaseChanges struct {
