@@ -13,3 +13,6 @@
 [submodule "vendor/github.com/facebookgo/clock"]
 	path = vendor/github.com/facebookgo/clock
 	url = https://github.com/facebookgo/clock
+[submodule "vendor/github.com/uber/uber-licence"]
+	path = vendor/github.com/uber/uber-licence
+	url = https://github.com/uber/uber-licence

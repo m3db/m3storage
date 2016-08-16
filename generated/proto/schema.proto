@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package schema;
+
+import "google/protobuf/timestamp.proto";
+
+// Database defines a single database
+message Database {
+	string name = 1;
+	int32 num_shards = 2;
+	repeated int32 retention_periods = 3;
+	google.protobuf.Timestamp read_cutover_time = 4;
+	google.protobuf.Timestamp write_cutover_time = 5;
+	google.protobuf.Timestamp cutover_complete_time = 6;
+	DatabaseLayout current_layout = 7;
+	DatabaseChanges pending_changes = 8;
+}
+
+// ClusterShardAssignment captures the shards currently assigned to a cluster
+message ClusterShardAssignment {
+	repeated uint32 shards = 1;
+}
+
+// DatabaseLayout defines the current layout of the database
+message DatabaseLayout {
+	repeated Cluster clusters = 1;
+	map<string, ClusterShardAssignment> shard_assigments = 2;
+	google.protobuf.Timestamp generated_at  = 9;
+}
+
+// ClusterStatus is the status of a cluster
+enum ClusterStatus {
+	UNKNOWN = 0;
+	ACTIVE = 1;
+	DECOMMISSIONING = 2;
+}
+
+// Cluster is the immutable metadata for a cluster
+message Cluster {
+	string name = 1;
+	string type = 2;
+	ClusterStatus status = 3;
+	google.protobuf.Timestamp created_at = 4;
+}
+
+// DatabaseChanges capture pending changes to the database
+message DatabaseChanges {
+	repeated ClusterJoin joins = 1;
+	repeated ClusterDecommission decomms = 2;
+}
+
+// ClusterJoin captures the data required to join a cluster to a database
+message ClusterJoin {
+	Cluster cluster = 1;
+}
+
+// ClusterDecommission captures the data required to decommission a cluster
+message ClusterDecommission {
+	string cluster_name = 1;
+}
