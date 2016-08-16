@@ -10,7 +10,7 @@ message Placement {
 
 // PlacementChanges defines overall changes to the placement (database adds and removes)
 message PlacementChanges {
-	DatabaseAdd database_adds = 1;
+	repeated DatabaseAdd database_adds = 1;
 }
 
 // DatabaseAdd is an update that adds a database

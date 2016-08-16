@@ -97,14 +97,14 @@ func (m *Placement) GetPendingChanges() *PlacementChanges {
 
 // PlacementChanges defines overall changes to the placement (database adds and removes)
 type PlacementChanges struct {
-	DatabaseAdds *DatabaseAdd `protobuf:"bytes,1,opt,name=database_adds" json:"database_adds,omitempty"`
+	DatabaseAdds []*DatabaseAdd `protobuf:"bytes,1,rep,name=database_adds" json:"database_adds,omitempty"`
 }
 
 func (m *PlacementChanges) Reset()         { *m = PlacementChanges{} }
 func (m *PlacementChanges) String() string { return proto.CompactTextString(m) }
 func (*PlacementChanges) ProtoMessage()    {}
 
-func (m *PlacementChanges) GetDatabaseAdds() *DatabaseAdd {
+func (m *PlacementChanges) GetDatabaseAdds() []*DatabaseAdd {
 	if m != nil {
 		return m.DatabaseAdds
 	}
