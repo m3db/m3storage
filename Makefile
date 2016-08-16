@@ -46,11 +46,15 @@ testhtml: test-internal
 	gocov convert $(coverfile) | gocov-html > $(html_report) && open $(html_report)
 	@rm -f $(test_log) &> /dev/null
 
-install-license-bin: 
+install-vendor: .gitmodules
+	@echo Updating submodules
+	git submodule update --init --recursive
+
+install-license-bin: install-vendor
 	@echo Installing node modules
 	[ -d $(license_node_modules) ] || (cd $(license_dir) && npm install)
 
-install-proto-bin: 
+install-proto-bin: install-vendor 
 	@echo Installing protobuf binaries
 	@echo Note: the protobuf compiler v3.0.0 can be downloaded from https://github.com/google/protobuf/releases or built from source at https://github.com/google/protobuf.
 	go install $(package_root)/$(vendor_prefix)/$(protoc_go_package)
