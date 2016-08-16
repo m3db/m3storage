@@ -59,8 +59,7 @@ type Cluster interface {
 	Name() string            // the name of the cluster
 	Type() Type              // the cluster's storage type
 	Config() VersionedConfig // the cluster's configuration
-	Weight() int             // the weight of the cluster
-	Datatabase() string      // the database to which the cluster belongs
+	Database() string        // the database to which the cluster belongs
 }
 
 // NewCluster returns a new Cluster with the given name, storage type, and config
