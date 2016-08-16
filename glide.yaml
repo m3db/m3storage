@@ -8,6 +8,7 @@ import:
   subpackages:
   - assert
   - require    
+- package: github.com/golang/mock    
 - package: github.com/m3db/m3x
   subpackages:
   - close
