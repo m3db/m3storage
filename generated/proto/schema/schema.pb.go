@@ -139,6 +139,7 @@ type Database struct {
 	PendingChanges      *DatabaseChanges `protobuf:"bytes,8,opt,name=pending_changes" json:"pending_changes,omitempty"`
 	CreatedAt           int64            `protobuf:"varint,9,opt,name=created_at" json:"created_at,omitempty"`
 	LastUpdatedAt       int64            `protobuf:"varint,10,opt,name=last_updated_at" json:"last_updated_at,omitempty"`
+	DecommissionedAt    int64            `protobuf:"varint,11,opt,name=decommissioned_at" json:"decommissioned_at,omitempty"`
 }
 
 func (m *Database) Reset()         { *m = Database{} }

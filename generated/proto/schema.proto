@@ -30,6 +30,7 @@ message Database {
 	DatabaseChanges pending_changes = 8;
 	int64 created_at = 9;
 	int64 last_updated_at = 10;
+	int64 decommissioned_at = 11;
 }
 
 // ClusterShardAssignment captures the shards currently assigned to a cluster
