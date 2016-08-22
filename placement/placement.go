@@ -23,10 +23,12 @@ import (
 	"time"
 
 	"github.com/facebookgo/clock"
-	"github.com/m3db/m3cluster"
+	"github.com/golang/protobuf/proto"
+	"github.com/m3db/m3cluster/changeset"
+	"github.com/m3db/m3cluster/kv"
 	"github.com/m3db/m3storage/generated/proto/schema"
 	"github.com/m3db/m3x/log"
-	_ "github.com/m3db/m3x/time"
+	"github.com/m3db/m3x/time"
 )
 
 var (
@@ -52,11 +54,11 @@ type CommitOptions interface {
 // StoragePlacement handles mapping shards
 type StoragePlacement interface {
 	// AddDatabase adds a new database to handle a set of retention periods
-	AddDatabase(db schema.Database) error
+	AddDatabase(db schema.DatabaseProperties) error
 
 	// JoinCluster adds a new cluster to an existing database and rebalances
 	// shards onto that cluster
-	JoinCluster(db string, c schema.Cluster) error
+	JoinCluster(db string, c schema.ClusterProperties) error
 
 	// DecommissionCluster marks a cluster as being decomissioned, moving
 	// its shards to other clusters.  Read traffic will continue to be directed
@@ -64,7 +66,10 @@ type StoragePlacement interface {
 	DecommissionCluster(db, c string) error
 
 	// CommitChanges commits and propagates any unapplied changes
-	CommitChanges(opts CommitOptions) error
+	CommitChanges(version int, opts CommitOptions) error
+
+	// GetPendingChanges gets pending placement changes
+	GetPendingChanges() (int, *schema.Placement, *schema.PlacementChanges, error)
 }
 
 // StoragePlacementOptions are options to building a storage placement
@@ -82,7 +87,7 @@ type StoragePlacementOptions interface {
 func NewStoragePlacementOptions() StoragePlacementOptions { return new(storagePlacementOptions) }
 
 // NewStoragePlacement creates a new StoragePlacement around a given config store
-func NewStoragePlacement(kv cluster.KVStore, key string, opts StoragePlacementOptions) StoragePlacement {
+func NewStoragePlacement(kv kv.Store, key string, opts StoragePlacementOptions) (StoragePlacement, error) {
 	var logger xlog.Logger
 	var c clock.Clock
 	if opts != nil {
@@ -98,163 +103,169 @@ func NewStoragePlacement(kv cluster.KVStore, key string, opts StoragePlacementOp
 		c = clock.New()
 	}
 
+	mgr, err := changeset.NewManager(changeset.NewManagerOptions().
+		KV(kv).
+		ConfigType(&schema.Placement{}).
+		ChangesType(&schema.PlacementChanges{}).
+		ConfigKey(key).
+		Logger(logger))
+	if err != nil {
+		return nil, err
+	}
+
 	return storagePlacement{
-		kv:    kv,
 		key:   key,
 		log:   logger,
+		mgr:   mgr,
 		clock: c,
-	}
+	}, nil
 }
 
 type storagePlacement struct {
-	kv    cluster.KVStore
 	key   string
 	log   xlog.Logger
+	mgr   changeset.Manager
 	clock clock.Clock
 }
 
-func (sp storagePlacement) AddDatabase(db schema.Database) error {
-	return sp.updatePlacement(func(p *schema.Placement) error {
+func (sp storagePlacement) AddDatabase(db schema.DatabaseProperties) error {
+	return sp.mgr.Change(wrapFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
 		if _, exists := p.Databases[db.Name]; exists {
 			return errDatabaseAlreadyExists
 		}
 
-		for _, add := range p.PendingChanges.DatabaseAdds {
-			if add.Database.Name == db.Name {
-				return errDatabaseAlreadyExists
-			}
+		if _, newlyAdded := changes.DatabaseAdds[db.Name]; newlyAdded {
+			return errDatabaseAlreadyExists
 		}
 
-		p.PendingChanges.DatabaseAdds = append(p.PendingChanges.DatabaseAdds, &schema.DatabaseAdd{
-			Database: newDatabase(db),
-		})
+		now := sp.clock.Now()
+		changes.DatabaseAdds[db.Name] = &schema.DatabaseAdd{
+			Database: &schema.Database{
+				Name:               db.Name,
+				NumShards:          db.NumShards,
+				MaxRetentionInSecs: db.MaxRetentionInSecs,
+				CreatedAt:          xtime.ToUnixMillis(now),
+				LastUpdatedAt:      xtime.ToUnixMillis(now),
+				Clusters:           make(map[string]*schema.Cluster),
+				ShardAssignments:   make(map[string]*schema.ClusterShardAssignment),
+			},
+		}
+
+		changes.DatabaseChanges[db.Name] = &schema.DatabaseChanges{}
 		return nil
-	})
+	}))
 }
 
-func (sp storagePlacement) JoinCluster(dbName string, c schema.Cluster) error {
-	return sp.updatePlacement(func(p *schema.Placement) error {
-		db := sp.findDatabase(p, dbName)
+func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties) error {
+	return sp.mgr.Change(wrapFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
+		db, dbChanges := sp.findDatabase(p, changes, dbName)
 		if db == nil {
 			return errDatabaseNotFound
 		}
 
-		if _, existing := db.CurrentLayout.Clusters[c.Name]; existing {
+		if _, existing := db.Clusters[c.Name]; existing {
 			return errClusterAlreadyExists
 		}
 
-		for _, joining := range db.PendingChanges.Joins {
-			if joining.Cluster.Name == c.Name {
-				return errClusterAlreadyExists
-			}
+		if _, joining := dbChanges.Joins[c.Name]; joining {
+			return errClusterAlreadyExists
 		}
 
-		db.PendingChanges.Joins = append(db.PendingChanges.Joins, &schema.ClusterJoin{
-			Cluster: &c,
-		})
+		dbChanges.Joins[c.Name] = &schema.ClusterJoin{
+			Cluster: &schema.Cluster{
+				Name:      c.Name,
+				Type:      c.Type,
+				Status:    schema.ClusterStatus_ACTIVE,
+				CreatedAt: xtime.ToUnixMillis(sp.clock.Now()),
+			},
+		}
 		return nil
-	})
+	}))
 }
 
-func (sp storagePlacement) DecommissionCluster(dbName, c string) error {
-	return sp.updatePlacement(func(p *schema.Placement) error {
-		db := sp.findDatabase(p, dbName)
+func (sp storagePlacement) DecommissionCluster(dbName, cName string) error {
+	return sp.mgr.Change(wrapFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
+		db, dbChanges := sp.findDatabase(p, changes, dbName)
 		if db == nil {
 			return errDatabaseNotFound
 		}
 
 		// If this is an existing cluster, add to the list of decomissions
-		if _, existing := db.CurrentLayout.Clusters[c]; existing {
-			db.PendingChanges.Decomms = append(db.PendingChanges.Decomms, &schema.ClusterDecommission{
-				ClusterName: c,
-			})
+		if _, existing := db.Clusters[cName]; existing {
+			dbChanges.Decomms[cName] = &schema.ClusterDecommission{
+				ClusterName: cName,
+			}
 			return nil
 		}
 
 		// If this is a pending join, delete from the join list
-		for n, joining := range db.PendingChanges.Joins {
-			if joining.Cluster.Name != c {
-				continue
-			}
-
-			db.PendingChanges.Joins = append(db.PendingChanges.Joins[:n], db.PendingChanges.Joins[n+1:]...)
+		if _, joining := dbChanges.Joins[cName]; joining {
+			delete(dbChanges.Joins, cName)
 			return nil
 		}
-
 		return errClusterNotFound
-	})
+	}))
 }
 
-func (sp storagePlacement) CommitChanges(opts CommitOptions) error {
-	return sp.updatePlacement(func(p *schema.Placement) error {
-		// TODO(mmihic): Handle database adds which take over traffic from an existing database
-		for _, add := range p.PendingChanges.DatabaseAdds {
-			p.Databases[add.Database.Name] = add.Database
-		}
-		p.PendingChanges = nil
+func (sp storagePlacement) GetPendingChanges() (int, *schema.Placement, *schema.PlacementChanges, error) {
+	vers, config, changes, err := sp.mgr.GetPendingChanges()
+	if err != nil {
+		return vers, nil, nil, err
+	}
+
+	return vers, config.(*schema.Placement), changes.(*schema.PlacementChanges), nil
+}
+
+func (sp storagePlacement) CommitChanges(version int, opts CommitOptions) error {
+	return sp.mgr.Commit(version, wrapFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
 		return nil
-	})
+	}))
 }
 
-func (sp storagePlacement) findDatabase(p *schema.Placement, name string) *schema.Database {
-	if db := p.Databases[name]; db != nil {
-		return db
-	}
+func (sp storagePlacement) findDatabase(p *schema.Placement, changes *schema.PlacementChanges, name string,
+) (*schema.Database, *schema.DatabaseChanges) {
 
-	for _, add := range p.PendingChanges.DatabaseAdds {
-		if add.Database.Name == name {
-			return add.Database
+	db := p.Databases[name]
+	if db == nil {
+		if add := changes.DatabaseAdds[name]; add != nil {
+			db = add.Database
 		}
 	}
 
-	return nil
+	if db == nil {
+		return nil, nil
+	}
+
+	dbChanges := changes.DatabaseChanges[name]
+	if dbChanges == nil {
+		dbChanges = &schema.DatabaseChanges{}
+		changes.DatabaseChanges[name] = dbChanges
+	}
+
+	return db, dbChanges
 }
 
-func (sp storagePlacement) updatePlacement(f func(p *schema.Placement) error) error {
-	// TODO(mmihic): Add attempt count?
-	// TODO(mmihic): Generalize into cluster
-	for {
-		v, err := sp.kv.Get(sp.key)
-		if err != nil && err != cluster.ErrNotFound {
-			return err
+type placementUpdateFn func(*schema.Placement, *schema.PlacementChanges) error
+
+// wrapFn wraps a placement modification function
+func wrapFn(f func(*schema.Placement, *schema.PlacementChanges) error) func(proto.Message, proto.Message) error {
+	return func(protoConfig, protoChanges proto.Message) error {
+		var (
+			config  = protoConfig.(*schema.Placement)
+			changes = protoChanges.(*schema.PlacementChanges)
+		)
+
+		if config.Databases == nil {
+			config.Databases = make(map[string]*schema.Database)
 		}
 
-		var p schema.Placement
-		if err == cluster.ErrNotFound {
-			p.PendingChanges = new(schema.PlacementChanges)
-		} else if err := v.Get(&p); err != nil {
-			return err
+		if changes.DatabaseAdds == nil {
+			changes.DatabaseAdds = make(map[string]*schema.DatabaseAdd)
+			changes.DatabaseChanges = make(map[string]*schema.DatabaseChanges)
 		}
 
-		if err := f(&p); err != nil {
-			return err
-		}
-
-		if v == nil {
-			err = sp.kv.SetIfNotExists(sp.key, &p)
-		} else {
-			err = sp.kv.CheckAndSet(sp.key, v.Version(), &p)
-		}
-
-		if err == nil {
-			return nil
-		} else if err == cluster.ErrVersionMismatch || err == cluster.ErrAlreadyExists {
-			return err
-		}
+		return f(config, changes)
 	}
-}
-
-func newDatabase(db schema.Database) *schema.Database {
-	ref := &db
-	if ref.PendingChanges == nil {
-		ref.PendingChanges = new(schema.DatabaseChanges)
-	}
-
-	if ref.CurrentLayout == nil {
-		ref.CurrentLayout = new(schema.DatabaseLayout)
-	}
-
-	return ref
 }
 
 type storagePlacementOptions struct {

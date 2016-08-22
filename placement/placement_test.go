@@ -27,7 +27,6 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/m3db/m3cluster"
 	"github.com/m3db/m3storage/generated/proto/schema"
-	"github.com/m3db/m3x/log"
 )
 
 type kvValue struct {
@@ -92,7 +91,7 @@ func (kv *kvStore) SetIfNotExists(key string, val proto.Message) error {
 	defer kv.Unlock()
 
 	if _, exists := kv.values[key]; exists {
-		return nil, cluster.ErrAlreadyExists
+		return cluster.ErrAlreadyExists
 	}
 
 	kv.values[key] = &kvValue{
@@ -114,7 +113,7 @@ func (kv *kvStore) CheckAndSet(key string, version int, val proto.Message) error
 
 	if val, exists := kv.values[key]; exists {
 		if val.version != version {
-			return nil, cluster.ErrVersionMismatch
+			return cluster.ErrVersionMismatch
 		}
 	}
 
@@ -127,6 +126,11 @@ func (kv *kvStore) CheckAndSet(key string, version int, val proto.Message) error
 }
 
 func TestAddDatabase(t *testing.T) {
+	kv := newMockKVStore()
+	sp := NewStoragePlacement(kv, "root", nil)
+	sp.AddDatabase(schema.Database{
+		Name: "foo",
+	})
 }
 
 func TestAddCluster(t *testing.T) {
