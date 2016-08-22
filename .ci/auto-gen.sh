@@ -1,10 +1,24 @@
 #!/bin/bash
+
+set -x
 . "$(dirname $0)/variables.sh"
 
+
 autogen_clear() {
+	DIR="$1"
+	
+	FILES=${DIR}/*
+	for FILE in $(ls $FILES); do
+		if [ -d $FILE ]; then
+			autogen_subdir_clear $FILE
+		fi
+	done				
+}
+
+autogen_subdir_clear() {
     DIR="$1"
 
-    rm -f ${DIR}/*
+    rm -f ${DIR}/*.go
 }
 
 mocks_clear() {
@@ -20,13 +34,28 @@ mocks_clear() {
     done
 }
 
+autogen_subdir_cleanup() {
+	DIR="$1"
+
+	FILE=${DIR}/*
+	for FILE in $(ls FILES); do
+		if [ -d $FILE ]; then
+			autogen_subdir_cleanup $FILE
+		else
+			file_cleanup $FILE $DIR
+		fi
+	done
+}
+
 autogen_cleanup() {
     DIR="$1"
 
-    FILES=${DIR}/*.go
+    FILES=${DIR}/*
     for FILE in $(ls $FILES);
     do
-        file_cleanup $FILE $DIR
+				if [ -d $FILE ]; then
+					autogen_subdir_cleanup $FILE
+				fi
     done
 }
 
