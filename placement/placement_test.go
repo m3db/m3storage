@@ -178,10 +178,7 @@ func (ts *testSuite) requireEqualDatabases(dbname string, db1, db2 *schema.Datab
 	for cname, c1 := range db1.Clusters {
 		c2 := db2.Clusters[cname]
 		require.NotNil(t, c2, "no Cluster named %s in %s", cname, dbname)
-		require.Equal(t, c1.Name, c2.Name, "Name[%s:%s]", dbname, cname)
-		require.Equal(t, c1.Weight, c2.Weight, "Weight[%s:%s]", dbname, cname)
-		require.Equal(t, c1.Status, c2.Status, "Status[%s:%s]", dbname, cname)
-		require.Equal(t, c1.Type, c2.Type, "Type[%s:%s]", dbname, cname)
+		ts.requireEqualClusters(dbname, cname, c1, c2)
 	}
 	require.Equal(t, len(db1.Clusters), len(db2.Clusters), "Clusters[%s]", dbname)
 
@@ -195,6 +192,16 @@ func (ts *testSuite) requireEqualDatabases(dbname string, db1, db2 *schema.Datab
 	// TODO(mmihic): Mapping rules
 }
 
+func (ts *testSuite) requireEqualClusters(dbname, cname string, c1, c2 *schema.Cluster) {
+	t := ts.t
+
+	require.Equal(t, c1.Name, c2.Name, "Name[%s:%s]", dbname, cname)
+	require.Equal(t, c1.Weight, c2.Weight, "Weight[%s:%s]", dbname, cname)
+	require.Equal(t, c1.Status, c2.Status, "Status[%s:%s]", dbname, cname)
+	require.Equal(t, c1.Type, c2.Type, "Type[%s:%s]", dbname, cname)
+	require.Equal(t, c1.CreatedAt, c2.CreatedAt, "CreatedAt[%s:%s]", dbname, cname)
+}
+
 func (ts *testSuite) requireEqualPlacementChanges(c1, c2 *schema.PlacementChanges) {
 	t := ts.t
 
@@ -202,5 +209,29 @@ func (ts *testSuite) requireEqualPlacementChanges(c1, c2 *schema.PlacementChange
 		add2 := c2.DatabaseAdds[dbname]
 		require.NotNil(t, add2, "No DatabaseAdd for %s", dbname)
 		ts.requireEqualDatabases(dbname, add1.Database, add2.Database)
+	}
+	require.Equal(t, len(c1.DatabaseAdds), len(c2.DatabaseAdds))
+
+	for dbname, dbchange1 := range c1.DatabaseChanges {
+		dbchange2 := c2.DatabaseChanges[dbname]
+		require.NotNil(t, dbchange2, "No DatabaseChange for %s", dbname)
+		ts.requireEqualDatabaseChanges(dbname, dbchange1, dbchange2)
+	}
+	require.Equal(t, len(c1.DatabaseChanges), len(c2.DatabaseChanges))
+}
+
+func (ts *testSuite) requireEqualDatabaseChanges(dbname string, c1, c2 *schema.DatabaseChanges) {
+	t := ts.t
+
+	for cname, j1 := range c1.Joins {
+		j2 := c2.Joins[cname]
+		require.NotNil(t, j2, "no join for %s in %s", cname, dbname)
+		ts.requireEqualClusters(dbname, cname, j1.Cluster, j2.Cluster)
+	}
+
+	for cname, d1 := range c1.Decomms {
+		d2 := c2.Decomms[cname]
+		require.NotNil(t, d2, "no decomm for %s in %s", cname, dbname)
+		require.Equal(t, d1.ClusterName, d2.ClusterName, "ClusterName[%s:%s]", dbname, cname)
 	}
 }
