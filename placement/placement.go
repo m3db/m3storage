@@ -75,12 +75,12 @@ type StoragePlacement interface {
 // StoragePlacementOptions are options to building a storage placement
 type StoragePlacementOptions interface {
 	// Clock is the clock to use in placement
-	Clock() clock.Clock
-	SetClock(c clock.Clock) StoragePlacementOptions
+	GetClock() clock.Clock
+	Clock(c clock.Clock) StoragePlacementOptions
 
 	// Logger is the logger to use in placement
-	Logger() xlog.Logger
-	SetLogger(l xlog.Logger) StoragePlacementOptions
+	GetLogger() xlog.Logger
+	Logger(l xlog.Logger) StoragePlacementOptions
 }
 
 // NewStoragePlacementOptions creates new StoragePlacementOptions
@@ -91,8 +91,8 @@ func NewStoragePlacement(kv kv.Store, key string, opts StoragePlacementOptions) 
 	var logger xlog.Logger
 	var c clock.Clock
 	if opts != nil {
-		logger = opts.Logger()
-		c = opts.Clock()
+		logger = opts.GetLogger()
+		c = opts.GetClock()
 	}
 
 	if logger == nil {
@@ -209,12 +209,19 @@ func (sp storagePlacement) DecommissionCluster(dbName, cName string) error {
 }
 
 func (sp storagePlacement) GetPendingChanges() (int, *schema.Placement, *schema.PlacementChanges, error) {
-	vers, config, changes, err := sp.mgr.GetPendingChanges()
-	if err != nil {
-		return vers, nil, nil, err
+	vers, protoConfig, protoChanges, err := sp.mgr.GetPendingChanges()
+
+	var p *schema.Placement
+	if protoConfig != nil {
+		p = protoConfig.(*schema.Placement)
 	}
 
-	return vers, config.(*schema.Placement), changes.(*schema.PlacementChanges), nil
+	var changes *schema.PlacementChanges
+	if protoChanges != nil {
+		changes = protoChanges.(*schema.PlacementChanges)
+	}
+
+	return vers, p, changes, err
 }
 
 func (sp storagePlacement) CommitChanges(version int, opts CommitOptions) error {
@@ -290,8 +297,6 @@ func (sp storagePlacement) commitDatabaseChanges(
 	// Go through all decomissioned clusters, remove them from the active
 	// clusters list, and add their shards to an "unowned" pool
 	for name := range changes.Decomms {
-		delete(db.Clusters, name)
-
 		shards := db.ShardAssignments[name]
 		if shards == nil {
 			continue
@@ -299,13 +304,18 @@ func (sp storagePlacement) commitDatabaseChanges(
 
 		unowned = append(unowned, shards.Shards...)
 		shardCutoffs[name] = append(shardCutoffs[name], shards.Shards...)
-		delete(db.ShardAssignments, name)
+		db.Clusters[name].Status = schema.ClusterStatus_DECOMMISSIONING
+		db.ShardAssignments[name].Shards = nil
 	}
 
 	// Rebalance shards on the active clusters.
 	// pass 1, return shards on overweight clusters to the "unowned" pool
 	desiredNumShards := sp.computeDesiredNumShards(db.Clusters, int(db.NumShards))
-	for name := range db.Clusters {
+	for name, c := range db.Clusters {
+		if c.Status != schema.ClusterStatus_ACTIVE {
+			continue
+		}
+
 		var (
 			desired  = desiredNumShards[name]
 			assigned = db.ShardAssignments[name]
@@ -323,7 +333,11 @@ func (sp storagePlacement) commitDatabaseChanges(
 	}
 
 	// pass 2, assign shards from the "unowned" pool to underweight clusters
-	for name := range db.Clusters {
+	for name, c := range db.Clusters {
+		if c.Status != schema.ClusterStatus_ACTIVE {
+			continue
+		}
+
 		var (
 			desired  = desiredNumShards[name]
 			assigned = db.ShardAssignments[name]
@@ -388,6 +402,9 @@ func (sp storagePlacement) computeDesiredNumShards(
 	// Compute the total weight of all clusters
 	var totalWeight uint32
 	for _, c := range clusters {
+		if c.Status != schema.ClusterStatus_ACTIVE {
+			continue
+		}
 		totalWeight += c.Weight
 	}
 
@@ -398,6 +415,10 @@ func (sp storagePlacement) computeDesiredNumShards(
 		desiredNumShards = make(map[string]int, len(clusters))
 	)
 	for name, c := range clusters {
+		if c.Status != schema.ClusterStatus_ACTIVE {
+			continue
+		}
+
 		relativeWeight := 100 * (float64(c.Weight) / float64(totalWeight))
 		numShards := int(relativeWeight * float64(totalShards))
 		if numShards > shardsRemaining {
@@ -474,15 +495,15 @@ type storagePlacementOptions struct {
 	logger xlog.Logger
 }
 
-func (opts *storagePlacementOptions) Clock() clock.Clock  { return opts.clock }
-func (opts *storagePlacementOptions) Logger() xlog.Logger { return opts.logger }
+func (opts *storagePlacementOptions) GetClock() clock.Clock  { return opts.clock }
+func (opts *storagePlacementOptions) GetLogger() xlog.Logger { return opts.logger }
 
-func (opts *storagePlacementOptions) SetClock(clock clock.Clock) StoragePlacementOptions {
+func (opts *storagePlacementOptions) Clock(clock clock.Clock) StoragePlacementOptions {
 	opts.clock = clock
 	return opts
 }
 
-func (opts *storagePlacementOptions) SetLogger(logger xlog.Logger) StoragePlacementOptions {
+func (opts *storagePlacementOptions) Logger(logger xlog.Logger) StoragePlacementOptions {
 	opts.logger = logger
 	return opts
 }

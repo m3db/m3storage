@@ -57,13 +57,14 @@ message Database {
 	map<string, Cluster> clusters = 10;
 	map<string, ClusterShardAssignment> shard_assignments = 11;
 	int64 generated_at = 12;
+	int32 version = 13;
+	repeated ClusterMappingRuleSet mapping_rules = 14;	
 }
 
 // ClusterShardAssignment captures the shards currently assigned to a cluster
 message ClusterShardAssignment {
 	repeated uint32 shards = 1;
 }
-
 
 // ClusterStatus is the status of a cluster
 enum ClusterStatus {
@@ -76,14 +77,16 @@ enum ClusterStatus {
 message ClusterProperties {
 	string name = 1;
 	string type = 2;
+	uint32 weight = 3;
 }
 
 // Cluster is the immutable metadata for a cluster
 message Cluster {
 	string name = 1;
 	string type = 2;
-	ClusterStatus status = 3;
-	int64 created_at = 4;
+	uint32 weight = 3;
+	ClusterStatus status = 4;
+	int64 created_at = 5;
 }
 
 // DatabaseChanges capture pending changes to the database
@@ -100,4 +103,29 @@ message ClusterJoin {
 // ClusterDecommission captures the data required to decommission a cluster
 message ClusterDecommission {
 	string cluster_name = 1;
+}
+
+
+// CutoverRule is a rule transition shards onto a given cluster
+message CutoverRule {
+	string cluster_name = 1;
+	repeated uint32 shards = 2;
+	int64 read_cutover_time = 3;
+	int64 write_cutover_time = 4;
+}
+
+// CutoffRule is a rule tranistioning shards off a given
+// cluster
+message CutoffRule {
+	string cluster_name = 1;
+	repeated uint32 shards = 2;
+	int64 cutoff_time = 3;
+}
+
+// ClusterMappingRuleSet is a set of cluster mapping rules built off a
+// particular version
+message ClusterMappingRuleSet {
+	int32 for_version = 1;
+	repeated CutoverRule cutovers = 3;
+	repeated CutoffRule cutoffs = 4;
 }
