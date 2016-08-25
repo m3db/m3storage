@@ -195,7 +195,7 @@ func (sp storagePlacement) DecommissionCluster(dbName, cName string) error {
 			return errDatabaseNotFound
 		}
 
-		// If this is an existing cluster, add to the list of decomissions
+		// If this is an existing cluster, add to the list of decomissions if it's not already there
 		if _, existing := db.Clusters[cName]; existing {
 			if dbChanges.Decomms == nil {
 				dbChanges.Decomms = make(map[string]*schema.ClusterDecommission)

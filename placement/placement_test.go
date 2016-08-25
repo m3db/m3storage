@@ -349,12 +349,111 @@ func TestPlacement_DecommissionExistingCluster(t *testing.T) {
 }
 
 func TestPlacement_DecomissionJoiningCluster(t *testing.T) {
+	ts := newTestSuite(t)
+	ts.clock.Add(time.Second * 34)
+
+	// Force create a placement with the given database and cluster
+	ts.forcePlacement(&schema.Placement{
+		Databases: map[string]*schema.Database{
+			"foo": &schema.Database{
+				Name: "foo",
+			},
+		},
+	})
+
+	// Join the cluster...
+	err := ts.sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "bar",
+		Type:   "m3db",
+		Weight: 256,
+	})
+	require.NoError(t, err)
+
+	// ...and decommission it
+	err = ts.sp.DecommissionCluster("foo", "bar")
+	require.NoError(t, err)
+
+	// Should just have an empty changes list
+	changes := ts.latestChanges()
+	ts.requireEqualChanges(&schema.PlacementChanges{
+		DatabaseChanges: map[string]*schema.DatabaseChanges{
+			"foo": &schema.DatabaseChanges{},
+		},
+	}, changes)
+
+}
+
+func TestPlacement_DoubleDecommision(t *testing.T) {
+	ts := newTestSuite(t)
+	ts.clock.Add(time.Second * 34)
+
+	// Force create a placement with the given database and cluster
+	ts.forcePlacement(&schema.Placement{
+		Databases: map[string]*schema.Database{
+			"foo": &schema.Database{
+				Name: "foo",
+				Clusters: map[string]*schema.Cluster{
+					"bar": &schema.Cluster{
+						Name: "bar",
+					},
+				},
+			},
+		},
+	})
+
+	// Decommission - should succeed
+	err := ts.sp.DecommissionCluster("foo", "bar")
+	require.NoError(t, err)
+
+	// Decommission again - should succeed
+	err = ts.sp.DecommissionCluster("foo", "bar")
+	require.NoError(t, err)
+
+	// Should have the decommission in the list
+	changes := ts.latestChanges()
+	ts.requireEqualChanges(&schema.PlacementChanges{
+		DatabaseChanges: map[string]*schema.DatabaseChanges{
+			"foo": &schema.DatabaseChanges{
+				Decomms: map[string]*schema.ClusterDecommission{
+					"bar": &schema.ClusterDecommission{
+						ClusterName: "bar",
+					},
+				},
+			}},
+	}, changes)
 }
 
 func TestPlacement_DecomissionNonExistentCluster(t *testing.T) {
+	ts := newTestSuite(t)
+	ts.clock.Add(time.Second * 34)
+
+	// Force create a placement with the given database but no cluster
+	ts.forcePlacement(&schema.Placement{
+		Databases: map[string]*schema.Database{
+			"foo": &schema.Database{
+				Name: "foo",
+			},
+		},
+	})
+
+	// Decommission - should fail
+	err := ts.sp.DecommissionCluster("foo", "bar")
+	require.Equal(t, errClusterNotFound, err)
+
+	// Should not modify changes
+	ts.requireEqualChanges(&schema.PlacementChanges{}, ts.latestChanges())
 }
 
 func TestPlacement_DecomissionClusterNonExistentDatabase(t *testing.T) {
+	ts := newTestSuite(t)
+	ts.clock.Add(time.Second * 34)
+
+	// Decommission - should fail
+	err := ts.sp.DecommissionCluster("foo", "bar")
+	require.Equal(t, errDatabaseNotFound, err)
+
+	// Should not modify changes
+	ts.requireEqualChanges(&schema.PlacementChanges{}, ts.latestChanges())
 }
 
 func TestPlacement_CommitAddDatabase(t *testing.T) {
