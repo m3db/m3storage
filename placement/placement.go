@@ -51,6 +51,9 @@ type CommitOptions interface {
 	TransitionDelay(t time.Duration) CommitOptions
 }
 
+// NewCommitOptions returns an empty set of CommitOptions
+func NewCommitOptions() CommitOptions { return new(commitOptions) }
+
 // StoragePlacement handles mapping shards
 type StoragePlacement interface {
 	// AddDatabase adds a new database to handle a set of retention periods
@@ -296,6 +299,21 @@ func (sp storagePlacement) commitDatabaseChanges(
 		shardCutovers = make(map[string][]uint32)
 	)
 
+	initialClusters := db.Clusters == nil
+	if initialClusters {
+		db.Clusters = make(map[string]*schema.Cluster)
+
+		// Every shard is unowned
+		unowned = make([]uint32, 0, int(db.NumShards))
+		for n := uint32(0); n < uint32(db.NumShards); n++ {
+			unowned = append(unowned, n)
+		}
+	}
+
+	if db.ShardAssignments == nil {
+		db.ShardAssignments = make(map[string]*schema.ClusterShardAssignment)
+	}
+
 	// Add all joining cluster to the set of active clusters
 	for name, join := range changes.Joins {
 		db.Clusters[name] = join.Cluster
@@ -376,7 +394,7 @@ func (sp storagePlacement) commitDatabaseChanges(
 	)
 
 	for name, shards := range shardCutovers {
-		// TODO(mmihic): If this is a new database we don't need graceful cutovers
+		// TODO(mmihic): If this is a new database we don't need graceful cutovers for reads
 		rules.Cutovers = append(rules.Cutovers, &schema.CutoverRule{
 			ClusterName:      name,
 			Shards:           shards,
@@ -427,7 +445,7 @@ func (sp storagePlacement) computeDesiredNumShards(
 			continue
 		}
 
-		relativeWeight := 100 * (float64(c.Weight) / float64(totalWeight))
+		relativeWeight := (float64(c.Weight) / float64(totalWeight))
 		numShards := int(relativeWeight * float64(totalShards))
 		if numShards > shardsRemaining {
 			numShards = shardsRemaining
@@ -517,3 +535,21 @@ func (opts *storagePlacementOptions) Logger(logger xlog.Logger) StoragePlacement
 	opts.logger = logger
 	return opts
 }
+
+type commitOptions struct {
+	rolloutDelay    time.Duration
+	transitionDelay time.Duration
+}
+
+func (opts *commitOptions) RolloutDelay(t time.Duration) CommitOptions {
+	opts.rolloutDelay = t
+	return opts
+}
+
+func (opts *commitOptions) TransitionDelay(t time.Duration) CommitOptions {
+	opts.transitionDelay = t
+	return opts
+}
+
+func (opts *commitOptions) GetRolloutDelay() time.Duration    { return opts.rolloutDelay }
+func (opts *commitOptions) GetTransitionDelay() time.Duration { return opts.transitionDelay }
