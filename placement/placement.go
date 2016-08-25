@@ -171,6 +171,10 @@ func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties
 			return errClusterAlreadyExists
 		}
 
+		if dbChanges.Joins == nil {
+			dbChanges.Joins = make(map[string]*schema.ClusterJoin)
+		}
+
 		dbChanges.Joins[c.Name] = &schema.ClusterJoin{
 			Cluster: &schema.Cluster{
 				Name:      c.Name,
@@ -193,6 +197,10 @@ func (sp storagePlacement) DecommissionCluster(dbName, cName string) error {
 
 		// If this is an existing cluster, add to the list of decomissions
 		if _, existing := db.Clusters[cName]; existing {
+			if dbChanges.Decomms == nil {
+				dbChanges.Decomms = make(map[string]*schema.ClusterDecommission)
+			}
+
 			dbChanges.Decomms[cName] = &schema.ClusterDecommission{
 				ClusterName: cName,
 			}
@@ -446,7 +454,6 @@ func (sp storagePlacement) findDatabase(
 	p *schema.Placement,
 	changes *schema.PlacementChanges,
 	name string) (*schema.Database, *schema.DatabaseChanges) {
-
 	db := p.Databases[name]
 	if db == nil {
 		if add := changes.DatabaseAdds[name]; add != nil {
@@ -483,6 +490,9 @@ func wrapFn(f func(*schema.Placement, *schema.PlacementChanges) error) func(prot
 
 		if changes.DatabaseAdds == nil {
 			changes.DatabaseAdds = make(map[string]*schema.DatabaseAdd)
+		}
+
+		if changes.DatabaseChanges == nil {
 			changes.DatabaseChanges = make(map[string]*schema.DatabaseChanges)
 		}
 

@@ -23,21 +23,26 @@ import (
 	"time"
 
 	"github.com/facebookgo/clock"
+	"github.com/golang/protobuf/proto"
 	"github.com/m3db/m3cluster/kv"
 	"github.com/m3db/m3storage/generated/proto/schema"
 	"github.com/m3db/m3x/time"
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	testRetentionInSecs = int32((time.Hour * 24 * 2) / time.Second)
+	testNumShards       = int32(4096)
+)
+
 func TestPlacement_AddDatabase(t *testing.T) {
 	ts := newTestSuite(t)
 	ts.clock.Add(time.Second * 34)
-	retentionInSecs := int32((time.Hour * 24 * 2) / time.Second)
-	numShards := int32(4096)
+
 	err := ts.sp.AddDatabase(schema.DatabaseProperties{
 		Name:               "foo",
-		MaxRetentionInSecs: retentionInSecs,
-		NumShards:          numShards,
+		MaxRetentionInSecs: testRetentionInSecs,
+		NumShards:          testNumShards,
 	})
 
 	require.NoError(t, err)
@@ -46,13 +51,13 @@ func TestPlacement_AddDatabase(t *testing.T) {
 	require.Equal(t, &schema.Placement{}, p)
 
 	changes := ts.latestChanges()
-	ts.requireEqualPlacementChanges(&schema.PlacementChanges{
+	ts.requireEqualChanges(&schema.PlacementChanges{
 		DatabaseAdds: map[string]*schema.DatabaseAdd{
 			"foo": &schema.DatabaseAdd{
 				Database: &schema.Database{
 					Name:               "foo",
-					MaxRetentionInSecs: retentionInSecs,
-					NumShards:          numShards,
+					MaxRetentionInSecs: testRetentionInSecs,
+					NumShards:          testNumShards,
 					CreatedAt:          xtime.ToUnixMillis(ts.clock.Now()),
 					LastUpdatedAt:      xtime.ToUnixMillis(ts.clock.Now()),
 					Clusters:           make(map[string]*schema.Cluster),
@@ -64,27 +69,292 @@ func TestPlacement_AddDatabase(t *testing.T) {
 }
 
 func TestPlacement_AddDatabaseConflictsWithExisting(t *testing.T) {
+	ts := newTestSuite(t)
+	ts.clock.Add(time.Second * 34)
+
+	// Force create a placement with the given database
+	ts.forcePlacement(&schema.Placement{
+		Databases: map[string]*schema.Database{
+			"foo": &schema.Database{
+				Name: "foo",
+			},
+		},
+	})
+
+	// Attempting to add a database with the same name should fail
+	err := ts.sp.AddDatabase(schema.DatabaseProperties{
+		Name:               "foo",
+		MaxRetentionInSecs: testRetentionInSecs,
+		NumShards:          testNumShards,
+	})
+	require.Equal(t, errDatabaseAlreadyExists, err)
+
+	// and should not modify the placement changes
+	changes := ts.latestChanges()
+	ts.requireEqualChanges(&schema.PlacementChanges{
+		DatabaseAdds:    map[string]*schema.DatabaseAdd{},
+		DatabaseChanges: map[string]*schema.DatabaseChanges{},
+	}, changes)
+
 }
 
 func TestPlacement_AddDatabaseConflictsWithNewlyAdded(t *testing.T) {
+	ts := newTestSuite(t)
+	ts.clock.Add(time.Second * 34)
+
+	// Force create placement changes with that database in the adds list
+	existingChanges := &schema.PlacementChanges{
+		DatabaseAdds: map[string]*schema.DatabaseAdd{
+			"foo": &schema.DatabaseAdd{
+				Database: &schema.Database{
+					Name:               "foo",
+					MaxRetentionInSecs: testRetentionInSecs,
+					NumShards:          testNumShards,
+					CreatedAt:          xtime.ToUnixMillis(ts.clock.Now()),
+					LastUpdatedAt:      xtime.ToUnixMillis(ts.clock.Now()),
+					Clusters:           make(map[string]*schema.Cluster),
+					ShardAssignments:   make(map[string]*schema.ClusterShardAssignment),
+				}}},
+		DatabaseChanges: map[string]*schema.DatabaseChanges{
+			"foo": &schema.DatabaseChanges{}},
+	}
+	ts.forceChanges(existingChanges)
+
+	// Should fail adding a duplicate database
+	err := ts.sp.AddDatabase(schema.DatabaseProperties{
+		Name:               "foo",
+		MaxRetentionInSecs: testRetentionInSecs,
+		NumShards:          testNumShards,
+	})
+	require.Equal(t, errDatabaseAlreadyExists, err)
+
+	// Should not modify existing changes
+	ts.requireEqualChanges(ts.latestChanges(), existingChanges)
 }
 
-func TestPlacement_JoinCluster(t *testing.T) {
+func TestPlacement_JoinClusterOnNewDatabase(t *testing.T) {
+	ts := newTestSuite(t)
+	ts.clock.Add(time.Second * 34)
+
+	err := ts.sp.AddDatabase(schema.DatabaseProperties{
+		Name:               "foo",
+		MaxRetentionInSecs: testRetentionInSecs,
+		NumShards:          testNumShards,
+	})
+
+	require.NoError(t, err)
+
+	err = ts.sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "bar",
+		Type:   "m3db",
+		Weight: 256,
+	})
+	require.NoError(t, err)
+
+	changes := ts.latestChanges()
+	ts.requireEqualChanges(&schema.PlacementChanges{
+		DatabaseAdds: map[string]*schema.DatabaseAdd{
+			"foo": &schema.DatabaseAdd{
+				Database: &schema.Database{
+					Name:               "foo",
+					MaxRetentionInSecs: testRetentionInSecs,
+					NumShards:          testNumShards,
+					CreatedAt:          xtime.ToUnixMillis(ts.clock.Now()),
+					LastUpdatedAt:      xtime.ToUnixMillis(ts.clock.Now()),
+					Clusters:           make(map[string]*schema.Cluster),
+					ShardAssignments:   make(map[string]*schema.ClusterShardAssignment),
+				}}},
+		DatabaseChanges: map[string]*schema.DatabaseChanges{
+			"foo": &schema.DatabaseChanges{
+				Joins: map[string]*schema.ClusterJoin{
+					"bar": &schema.ClusterJoin{
+						Cluster: &schema.Cluster{
+							Name:      "bar",
+							Type:      "m3db",
+							Status:    schema.ClusterStatus_ACTIVE,
+							Weight:    256,
+							CreatedAt: xtime.ToUnixMillis(ts.clock.Now()),
+						},
+					},
+				},
+			}},
+	}, changes)
+
+}
+
+func TestPlacement_JoinClusterOnExistingDatabase(t *testing.T) {
+	ts := newTestSuite(t)
+	ts.clock.Add(time.Second * 34)
+
+	// Force create a placement with the given database
+	ts.forcePlacement(&schema.Placement{
+		Databases: map[string]*schema.Database{
+			"foo": &schema.Database{
+				Name: "foo",
+			},
+		},
+	})
+
+	// Perform join
+	err := ts.sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "bar",
+		Type:   "m3db",
+		Weight: 256,
+	})
+	require.NoError(t, err)
+
+	// Make sure we have the right changes
+	changes := ts.latestChanges()
+	ts.requireEqualChanges(&schema.PlacementChanges{
+		DatabaseChanges: map[string]*schema.DatabaseChanges{
+			"foo": &schema.DatabaseChanges{
+				Joins: map[string]*schema.ClusterJoin{
+					"bar": &schema.ClusterJoin{
+						Cluster: &schema.Cluster{
+							Name:      "bar",
+							Type:      "m3db",
+							Status:    schema.ClusterStatus_ACTIVE,
+							Weight:    256,
+							CreatedAt: xtime.ToUnixMillis(ts.clock.Now()),
+						},
+					},
+				},
+			}},
+	}, changes)
 }
 
 func TestPlacement_JoinClusterConflictsWithExisting(t *testing.T) {
+	ts := newTestSuite(t)
+	ts.clock.Add(time.Second * 34)
+
+	// Force create a placement with the given database and cluster
+	ts.forcePlacement(&schema.Placement{
+		Databases: map[string]*schema.Database{
+			"foo": &schema.Database{
+				Name: "foo",
+				Clusters: map[string]*schema.Cluster{
+					"bar": &schema.Cluster{},
+				},
+			},
+		},
+	})
+
+	// Attempting to join should fail
+	err := ts.sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "bar",
+		Type:   "m3db",
+		Weight: 256,
+	})
+	require.Equal(t, errClusterAlreadyExists, err)
+
+	// Shouldn't modify changes
+	ts.requireEqualChanges(ts.latestChanges(), &schema.PlacementChanges{})
 }
 
 func TestPlacement_JoinClusterConflictsWithJoining(t *testing.T) {
+	ts := newTestSuite(t)
+	ts.clock.Add(time.Second * 34)
+
+	// Force create a placement with the given database
+	ts.forcePlacement(&schema.Placement{
+		Databases: map[string]*schema.Database{
+			"foo": &schema.Database{
+				Name: "foo",
+			},
+		},
+	})
+
+	// Join
+	err := ts.sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "bar",
+		Type:   "m3db",
+		Weight: 256,
+	})
+	require.NoError(t, err)
+
+	// Attempting to join again should fail
+	err = ts.sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "bar",
+		Type:   "m3db",
+		Weight: 256,
+	})
+	require.Equal(t, errClusterAlreadyExists, err)
+
+	// Should only have the cluster once
+	ts.requireEqualChanges(&schema.PlacementChanges{
+		DatabaseChanges: map[string]*schema.DatabaseChanges{
+			"foo": &schema.DatabaseChanges{
+				Joins: map[string]*schema.ClusterJoin{
+					"bar": &schema.ClusterJoin{
+						Cluster: &schema.Cluster{
+							Name:      "bar",
+							Type:      "m3db",
+							Status:    schema.ClusterStatus_ACTIVE,
+							Weight:    256,
+							CreatedAt: xtime.ToUnixMillis(ts.clock.Now()),
+						},
+					},
+				},
+			}},
+	}, ts.latestChanges())
+}
+
+func TestPlacement_JoinClusterNonExistentDatabase(t *testing.T) {
+	ts := newTestSuite(t)
+	ts.clock.Add(time.Second * 34)
+
+	// Join
+	err := ts.sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "bar",
+		Type:   "m3db",
+		Weight: 256,
+	})
+	require.Equal(t, errDatabaseNotFound, err)
 }
 
 func TestPlacement_DecommissionExistingCluster(t *testing.T) {
+	ts := newTestSuite(t)
+	ts.clock.Add(time.Second * 34)
+
+	// Force create a placement with the given database and cluster
+	ts.forcePlacement(&schema.Placement{
+		Databases: map[string]*schema.Database{
+			"foo": &schema.Database{
+				Name: "foo",
+				Clusters: map[string]*schema.Cluster{
+					"bar": &schema.Cluster{
+						Name: "bar",
+					},
+				},
+			},
+		},
+	})
+
+	// Decommission - should succeed
+	err := ts.sp.DecommissionCluster("foo", "bar")
+	require.NoError(t, err)
+
+	// Should have the decommission in the list
+	changes := ts.latestChanges()
+	ts.requireEqualChanges(&schema.PlacementChanges{
+		DatabaseChanges: map[string]*schema.DatabaseChanges{
+			"foo": &schema.DatabaseChanges{
+				Decomms: map[string]*schema.ClusterDecommission{
+					"bar": &schema.ClusterDecommission{
+						ClusterName: "bar",
+					},
+				},
+			}},
+	}, changes)
 }
 
 func TestPlacement_DecomissionJoiningCluster(t *testing.T) {
 }
 
 func TestPlacement_DecomissionNonExistentCluster(t *testing.T) {
+}
+
+func TestPlacement_DecomissionClusterNonExistentDatabase(t *testing.T) {
 }
 
 func TestPlacement_CommitAddDatabase(t *testing.T) {
@@ -148,6 +418,28 @@ func (ts *testSuite) latestChanges() *schema.PlacementChanges {
 	return changes
 }
 
+func (ts *testSuite) forcePlacement(newPlacement *schema.Placement) {
+	require.NoError(ts.t, ts.sp.(storagePlacement).mgr.Change(func(_, _ proto.Message) error {
+		return nil
+	}))
+
+	latestVersion := ts.latestVersion()
+	require.NoError(ts.t, ts.sp.(storagePlacement).mgr.Commit(latestVersion,
+		func(cfg, _ proto.Message) error {
+			p := cfg.(*schema.Placement)
+			*p = *newPlacement
+			return nil
+		}))
+}
+
+func (ts *testSuite) forceChanges(newChanges *schema.PlacementChanges) {
+	require.NoError(ts.t, ts.sp.(storagePlacement).mgr.Change(func(_, protoChanges proto.Message) error {
+		c := protoChanges.(*schema.PlacementChanges)
+		*c = *newChanges
+		return nil
+	}))
+}
+
 func (ts *testSuite) requireEqualPlacements(p1, p2 *schema.Placement) {
 	t := ts.t
 	if p1.Databases == nil {
@@ -202,7 +494,7 @@ func (ts *testSuite) requireEqualClusters(dbname, cname string, c1, c2 *schema.C
 	require.Equal(t, c1.CreatedAt, c2.CreatedAt, "CreatedAt[%s:%s]", dbname, cname)
 }
 
-func (ts *testSuite) requireEqualPlacementChanges(c1, c2 *schema.PlacementChanges) {
+func (ts *testSuite) requireEqualChanges(c1, c2 *schema.PlacementChanges) {
 	t := ts.t
 
 	for dbname, add1 := range c1.DatabaseAdds {
