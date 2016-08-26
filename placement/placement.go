@@ -162,6 +162,8 @@ func (sp storagePlacement) AddDatabase(db schema.DatabaseProperties) error {
 			return errDatabaseAlreadyExists
 		}
 
+		sp.log.Infof("adding database %s (shards: %d, max retention in secs: %d)",
+			db.Name, db.NumShards, db.MaxRetentionInSecs)
 		now := sp.clock.Now()
 		changes.DatabaseAdds[db.Name] = &schema.DatabaseAdd{
 			Database: &schema.Database{
@@ -211,6 +213,7 @@ func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties
 			dbChanges.Joins = make(map[string]*schema.ClusterJoin)
 		}
 
+		sp.log.Infof("joining cluster %s (weight:%d, type:%s) to database %s", c.Name, c.Weight, c.Type, dbName)
 		dbChanges.Joins[c.Name] = &schema.ClusterJoin{
 			Cluster: &schema.Cluster{
 				Name:      c.Name,
@@ -237,6 +240,7 @@ func (sp storagePlacement) DecommissionCluster(dbName, cName string) error {
 				dbChanges.Decomms = make(map[string]*schema.ClusterDecommission)
 			}
 
+			sp.log.Infof("decommissioning cluster %s in database %s", cName, dbName)
 			dbChanges.Decomms[cName] = &schema.ClusterDecommission{
 				ClusterName: cName,
 			}
@@ -245,6 +249,7 @@ func (sp storagePlacement) DecommissionCluster(dbName, cName string) error {
 
 		// If this is a pending join, delete from the join list
 		if _, joining := dbChanges.Joins[cName]; joining {
+			sp.log.Infof("removing pending cluster %s from database %s", cName, dbName)
 			delete(dbChanges.Joins, cName)
 			return nil
 		}
@@ -270,6 +275,7 @@ func (sp storagePlacement) GetPendingChanges() (int, *schema.Placement, *schema.
 
 func (sp storagePlacement) CommitChanges(version int, opts CommitOptions) error {
 	return sp.mgr.Commit(version, wrapFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
+		sp.log.Infof("committing changes at version %d", version)
 
 		// Pull all existing databases, and order them by max retention period.  This will be used
 		// to determine if any new databases are pulling traffic from an existing database
