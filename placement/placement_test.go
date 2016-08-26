@@ -19,7 +19,6 @@
 package placement
 
 import (
-	_ "encoding/json"
 	"testing"
 	"time"
 
@@ -27,6 +26,7 @@ import (
 	"github.com/golang/protobuf/proto"
 	"github.com/m3db/m3cluster/kv"
 	"github.com/m3db/m3storage/generated/proto/schema"
+	"github.com/m3db/m3x/log"
 	"github.com/m3db/m3x/time"
 	"github.com/stretchr/testify/require"
 )
@@ -579,14 +579,14 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 							&schema.CutoverRule{
 								ClusterName:      "bar",
 								Shards:           []uint32{0, 1},
-								ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
-								WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
+								ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
+								WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 							},
 							&schema.CutoverRule{
 								ClusterName:      "zed",
 								Shards:           []uint32{2, 3},
-								ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
-								WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
+								ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
+								WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 							},
 						},
 					},
@@ -597,7 +597,6 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 
 	// ...and we've moved on to a new set of changes
 	require.Nil(t, ts.latestChanges())
-
 }
 
 func TestPlacement_CommitDecommissionCluster(t *testing.T) {
@@ -609,7 +608,199 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 func TestPlacement_CommitUnevenClusterDistribution(t *testing.T) {
 }
 
-func TestPlacement_CommitComplexTopologyChange(t *testing.T) {
+func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
+	// Create a database with a set of clusters
+	ts := newTestSuite(t)
+	ts.clock.Add(time.Second * 34)
+	createTime := xtime.ToUnixMillis(ts.clock.Now())
+
+	// Add the database and some clusters
+	require.NoError(t, ts.sp.AddDatabase(schema.DatabaseProperties{
+		Name:               "foo",
+		MaxRetentionInSecs: testRetentionInSecs,
+		NumShards:          testNumShards,
+	}))
+
+	ts.clock.Add(time.Second * 50)
+	c1CreateTime := xtime.ToUnixMillis(ts.clock.Now())
+	require.NoError(t, ts.sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "c1",
+		Weight: uint32(testNumShards / 2),
+		Type:   "m3db",
+	}))
+
+	ts.clock.Add(time.Minute * 30)
+	c2CreateTime := xtime.ToUnixMillis(ts.clock.Now())
+	require.NoError(t, ts.sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "c2",
+		Weight: uint32(testNumShards / 2),
+		Type:   "m3db",
+	}))
+
+	ts.clock.Add(time.Second * 45)
+
+	// Commit the changes
+	require.NoError(t, ts.sp.CommitChanges(ts.latestVersion(), testCommitOpts))
+
+	// Confirm the placement looks correct
+	db := &schema.Database{
+		Name:               "foo",
+		MaxRetentionInSecs: testRetentionInSecs,
+		NumShards:          testNumShards,
+		CreatedAt:          createTime,
+		LastUpdatedAt:      createTime,
+		ShardAssignments: map[string]*schema.ClusterShardAssignment{
+			"c1": &schema.ClusterShardAssignment{
+				Shards: []uint32{0, 1},
+			},
+			"c2": &schema.ClusterShardAssignment{
+				Shards: []uint32{2, 3},
+			},
+		},
+		Version: 1,
+		Clusters: map[string]*schema.Cluster{
+			"c1": &schema.Cluster{
+				Name:      "c1",
+				Weight:    uint32(testNumShards) / 2,
+				Type:      "m3db",
+				Status:    schema.ClusterStatus_ACTIVE,
+				CreatedAt: c1CreateTime,
+			},
+			"c2": &schema.Cluster{
+				Name:      "c2",
+				Weight:    uint32(testNumShards) / 2,
+				Type:      "m3db",
+				Status:    schema.ClusterStatus_ACTIVE,
+				CreatedAt: c2CreateTime,
+			},
+		},
+		MappingRules: []*schema.ClusterMappingRuleSet{
+			&schema.ClusterMappingRuleSet{
+				ForVersion: 1,
+				Cutovers: []*schema.CutoverRule{
+					&schema.CutoverRule{
+						ClusterName:      "c1",
+						Shards:           []uint32{0, 1},
+						ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
+						WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
+					},
+					&schema.CutoverRule{
+						ClusterName:      "c2",
+						Shards:           []uint32{2, 3},
+						ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
+						WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
+					},
+				},
+			},
+		},
+	}
+
+	expectedPlacement := &schema.Placement{
+		Databases: map[string]*schema.Database{
+			"foo": db,
+		},
+	}
+	ts.requireEqualPlacements(expectedPlacement, ts.latestPlacement())
+
+	// Join another cluster
+	ts.clock.Add(time.Minute * 30)
+	c3CreateTime := xtime.ToUnixMillis(ts.clock.Now())
+
+	require.NoError(t, ts.sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "c3",
+		Weight: uint32(testNumShards / 2),
+		Type:   "m3db",
+	}))
+	require.NoError(t, ts.sp.CommitChanges(ts.latestVersion(), testCommitOpts))
+
+	// Should redistribute the load, leaving more shards on the oldest cluster
+	db.Version = 2
+	db.Clusters["c3"] = &schema.Cluster{
+		Name:      "c3",
+		CreatedAt: c3CreateTime,
+		Weight:    uint32(testNumShards / 2),
+		Type:      "m3db",
+		Status:    schema.ClusterStatus_ACTIVE,
+	}
+	db.ShardAssignments["c1"].Shards = []uint32{0, 1}
+	db.ShardAssignments["c2"].Shards = []uint32{3}
+	db.ShardAssignments["c3"] = &schema.ClusterShardAssignment{
+		Shards: []uint32{2},
+	}
+	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
+		ForVersion: 2,
+		Cutovers: []*schema.CutoverRule{
+			&schema.CutoverRule{
+				ClusterName:      "c3",
+				Shards:           []uint32{2},
+				ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
+				WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
+			},
+		},
+		Cutoffs: []*schema.CutoffRule{
+			&schema.CutoffRule{
+				ClusterName: "c2",
+				Shards:      []uint32{2},
+				CutoffTime:  xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
+			},
+		},
+	})
+
+	ts.requireEqualPlacements(expectedPlacement, ts.latestPlacement())
+
+	// Decommission an existing clusters and add a third	ts.clock.Add(time.Hour * 72)
+	c4CreateTime := xtime.ToUnixMillis(ts.clock.Now())
+	require.NoError(t, ts.sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "c4",
+		Weight: uint32(testNumShards / 2),
+		Type:   "m3db",
+	}))
+	require.NoError(t, ts.sp.DecommissionCluster("foo", "c1"))
+	require.NoError(t, ts.sp.CommitChanges(ts.latestVersion(), testCommitOpts))
+
+	// should redistribute traffic between the newly added and remaining clusters
+	db.Version = 3
+	db.Clusters["c4"] = &schema.Cluster{
+		Name:      "c4",
+		CreatedAt: c4CreateTime,
+		Weight:    uint32(testNumShards / 2),
+		Type:      "m3db",
+		Status:    schema.ClusterStatus_ACTIVE,
+	}
+	db.Clusters["c1"].Status = schema.ClusterStatus_DECOMMISSIONING
+	db.ShardAssignments["c1"].Shards = nil
+	db.ShardAssignments["c2"].Shards = []uint32{0, 3}
+	db.ShardAssignments["c4"] = &schema.ClusterShardAssignment{
+		Shards: []uint32{1},
+	}
+
+	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
+		ForVersion: 3,
+		Cutovers: []*schema.CutoverRule{
+			&schema.CutoverRule{
+				ClusterName:      "c2",
+				Shards:           []uint32{0},
+				ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
+				WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
+			},
+
+			&schema.CutoverRule{
+				ClusterName:      "c4",
+				Shards:           []uint32{1},
+				ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
+				WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
+			},
+		},
+		Cutoffs: []*schema.CutoffRule{
+			&schema.CutoffRule{
+				ClusterName: "c1",
+				Shards:      []uint32{0, 1},
+				CutoffTime:  xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
+			},
+		},
+	})
+
+	ts.requireEqualPlacements(expectedPlacement, ts.latestPlacement())
 }
 
 type testSuite struct {
@@ -623,7 +814,7 @@ func newTestSuite(t *testing.T) *testSuite {
 	kv := kv.NewFakeStore()
 	clock := clock.NewMock()
 
-	sp, err := NewStoragePlacement(kv, "p", NewStoragePlacementOptions().Clock(clock))
+	sp, err := NewStoragePlacement(kv, "p", NewStoragePlacementOptions().Clock(clock).Logger(xlog.SimpleLogger))
 	require.NoError(t, err)
 
 	return &testSuite{
@@ -721,7 +912,25 @@ func (ts *testSuite) requireEqualDatabases(dbname string, db1, db2 *schema.Datab
 		r1, r2 := db1.MappingRules[i], db2.MappingRules[i]
 		require.Equal(t, r1.ForVersion, r2.ForVersion, "ForVersion[%s:%d]", dbname, i)
 		require.Equal(t, len(r1.Cutovers), len(r2.Cutovers), "Cutovers[%s:%d]", dbname, i)
+		for n := range r1.Cutovers {
+			cut1, cut2 := r1.Cutovers[n], r2.Cutovers[n]
+			require.Equal(t, cut1.ClusterName, cut2.ClusterName,
+				"Cutovers[%s:%d:%d].ClusterName", dbname, i, n)
+			require.Equal(t, cut1.ReadCutoverTime, cut2.ReadCutoverTime,
+				"Cutovers[%s:%d:%d].ReadCutoverTime", dbname, i, n)
+			require.Equal(t, cut1.WriteCutoverTime, cut2.WriteCutoverTime,
+				"Cutovers[%s:%d:%d].WriteCutoverTime", dbname, i, n)
+			require.Equal(t, cut1.Shards, cut2.Shards, "Cutovers[%s:%d:%d].Shards", dbname, i, n)
+		}
+
 		require.Equal(t, len(r1.Cutoffs), len(r2.Cutoffs), "Cutoffs[%s:%d]", dbname, i)
+		for n := range r1.Cutoffs {
+			cut1, cut2 := r1.Cutoffs[n], r2.Cutoffs[n]
+			require.Equal(t, cut1.ClusterName, cut2.ClusterName,
+				"Cutoffs[%s:%d:%d].ClusterName", dbname, i, n)
+			require.Equal(t, cut1.CutoffTime, cut2.CutoffTime, "Cutoffs[%s:%d:%d].CutoffTime", dbname, i, n)
+			require.Equal(t, cut1.Shards, cut2.Shards, "Cutoffs[%s:%d:%d].Shards", dbname, i, n)
+		}
 	}
 }
 

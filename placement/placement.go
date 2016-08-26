@@ -238,16 +238,23 @@ func (sp storagePlacement) GetPendingChanges() (int, *schema.Placement, *schema.
 
 func (sp storagePlacement) CommitChanges(version int, opts CommitOptions) error {
 	return sp.mgr.Commit(version, wrapFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
-		for name, add := range changes.DatabaseAdds {
-			change := changes.DatabaseChanges[name]
-			if err := sp.commitNewDatabase(p, add.Database, change, opts); err != nil {
+
+		// Pull all existing databases, and order them by max retention period.  This will be used
+		// to determine if any new databases are pulling traffic from an existing database
+		existingDatabases := make([]*schema.Database, 0, len(p.Databases))
+		for _, existing := range p.Databases {
+			existingDatabases = append(existingDatabases, existing)
+		}
+		sort.Sort(databasesByMaxRetentionInSecs(existingDatabases))
+
+		// Add new databases
+		for _, add := range changes.DatabaseAdds {
+			if err := sp.commitNewDatabase(p, add.Database, existingDatabases, opts); err != nil {
 				return err
 			}
-
-			// Don't double process as a set of changes
-			delete(changes.DatabaseChanges, name)
 		}
 
+		// Process database changes, including those from new databases
 		for name, change := range changes.DatabaseChanges {
 			if err := sp.commitDatabaseChanges(p, p.Databases[name], change, opts); err != nil {
 				return err
@@ -261,18 +268,23 @@ func (sp storagePlacement) CommitChanges(version int, opts CommitOptions) error 
 func (sp storagePlacement) commitNewDatabase(
 	p *schema.Placement,
 	db *schema.Database,
-	changes *schema.DatabaseChanges,
+	existingDatabases []*schema.Database,
 	opts CommitOptions) error {
+	sp.log.Infof("Creating initial database configuration for %s", db.Name)
+
 	// Check to see if there are any existing databases that cover this retention
 	// period - if so then we need to do a staged cutover to that database
-	// TODO(mmihic): This will do a staged cutover if two newly introduced databases
-	// overlap with each other
-	needsStagedCutover := false
-	for _, existing := range p.Databases {
-		needsStagedCutover = needsStagedCutover || existing.MaxRetentionInSecs > db.MaxRetentionInSecs
-	}
+	for _, existing := range existingDatabases {
+		if len(existing.Clusters) == 0 {
+			// Existing doesn't have any assigned clusters yet, don't need to cutover from it
+			break
+		}
 
-	if needsStagedCutover {
+		if existing.MaxRetentionInSecs < db.MaxRetentionInSecs {
+			// We're not pulling traffic from this database
+			break
+		}
+
 		var (
 			readCutoverTime     = sp.clock.Now().Add(opts.GetRolloutDelay())
 			writeCutoverTime    = readCutoverTime.Add(opts.GetRolloutDelay())
@@ -282,10 +294,13 @@ func (sp storagePlacement) commitNewDatabase(
 		db.ReadCutoverTime = xtime.ToUnixMillis(readCutoverTime)
 		db.WriteCutoverTime = xtime.ToUnixMillis(writeCutoverTime)
 		db.CutoverCompleteTime = xtime.ToUnixMillis(cutoverCompleteTime)
+
+		sp.log.Infof("Database %s needs staged cutover from %s; reads starting @ %s, writes starting @ %s, reads to %s stopping @ %s",
+			db.Name, existing.Name, readCutoverTime, writeCutoverTime, existing.Name, cutoverCompleteTime)
 	}
 
 	p.Databases[db.Name] = db
-	return sp.commitDatabaseChanges(p, db, changes, opts)
+	return nil
 }
 
 func (sp storagePlacement) commitDatabaseChanges(
@@ -294,6 +309,7 @@ func (sp storagePlacement) commitDatabaseChanges(
 	changes *schema.DatabaseChanges,
 	opts CommitOptions) error {
 
+	sp.log.Infof("Processing changes to database %s", db.Name)
 	var (
 		unowned       []uint32
 		shardCutoffs  = make(map[string][]uint32)
@@ -317,6 +333,7 @@ func (sp storagePlacement) commitDatabaseChanges(
 
 	// Add all joining cluster to the set of active clusters
 	for name, join := range changes.Joins {
+		sp.log.Infof("Joining cluster %s:%s", db.Name, name)
 		db.Clusters[name] = join.Cluster
 		db.ShardAssignments[name] = &schema.ClusterShardAssignment{}
 	}
@@ -324,6 +341,9 @@ func (sp storagePlacement) commitDatabaseChanges(
 	// Go through all decomissioned clusters, remove them from the active
 	// clusters list, and add their shards to an "unowned" pool
 	for name := range changes.Decomms {
+		sp.log.Infof("Decommissioning cluster %s:%s", db.Name, name)
+		db.Clusters[name].Status = schema.ClusterStatus_DECOMMISSIONING
+
 		shards := db.ShardAssignments[name]
 		if shards == nil {
 			continue
@@ -331,7 +351,6 @@ func (sp storagePlacement) commitDatabaseChanges(
 
 		unowned = append(unowned, shards.Shards...)
 		shardCutoffs[name] = append(shardCutoffs[name], shards.Shards...)
-		db.Clusters[name].Status = schema.ClusterStatus_DECOMMISSIONING
 		db.ShardAssignments[name].Shards = nil
 	}
 
@@ -412,7 +431,9 @@ func (sp storagePlacement) commitDatabaseChanges(
 	)
 
 	for name, shards := range shardCutovers {
-		// TODO(mmihic): If this is a new database we don't need graceful cutovers for reads
+		sp.log.Infof("Shifting %d shards onto %s:%s at (reads starting @ %v, writes starting @ %v)",
+			len(shards), db.Name, name, readCutoverTime, writeCutoverTime)
+
 		rules.Cutovers = append(rules.Cutovers, &schema.CutoverRule{
 			ClusterName:      name,
 			Shards:           shards,
@@ -422,6 +443,9 @@ func (sp storagePlacement) commitDatabaseChanges(
 	}
 
 	for name, shards := range shardCutoffs {
+		sp.log.Infof("Shifting %d shards off %s:%s (reads stopping @ %v)",
+			len(shards), db.Name, name, cutoffTime)
+
 		rules.Cutoffs = append(rules.Cutoffs, &schema.CutoffRule{
 			ClusterName: name,
 			Shards:      shards,
@@ -459,10 +483,6 @@ func (sp storagePlacement) computeDesiredNumShards(
 		desiredNumShards = make(map[string]int, len(clusters))
 	)
 	for name, c := range clusters {
-		if c.Status != schema.ClusterStatus_ACTIVE {
-			continue
-		}
-
 		relativeWeight := (float64(c.Weight) / float64(totalWeight))
 		numShards := int(relativeWeight * float64(totalShards))
 		if numShards > shardsRemaining {
@@ -580,3 +600,12 @@ type shardsInOrder []uint32
 func (shards shardsInOrder) Len() int           { return len(shards) }
 func (shards shardsInOrder) Less(i, j int) bool { return shards[i] < shards[j] }
 func (shards shardsInOrder) Swap(i, j int)      { shards[i], shards[j] = shards[j], shards[i] }
+
+// sort.Interface for databases by MaxRetentionInSecs
+type databasesByMaxRetentionInSecs []*schema.Database
+
+func (dbs databasesByMaxRetentionInSecs) Len() int { return len(dbs) }
+func (dbs databasesByMaxRetentionInSecs) Less(i, j int) bool {
+	return dbs[i].MaxRetentionInSecs < dbs[j].MaxRetentionInSecs
+}
+func (dbs databasesByMaxRetentionInSecs) Swap(i, j int) { dbs[i], dbs[j] = dbs[j], dbs[i] }
