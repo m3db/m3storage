@@ -44,6 +44,30 @@ var (
 		TransitionDelay(testTransitionDelay)
 )
 
+func TestPlacement_AddDatabaseInvalid(t *testing.T) {
+	ts := newTestSuite(t)
+
+	tests := []struct {
+		db  schema.DatabaseProperties
+		err error
+	}{
+		{schema.DatabaseProperties{NumShards: 1024, MaxRetentionInSecs: 20},
+			errDatabaseInvalidName},
+		{schema.DatabaseProperties{Name: "Foo", MaxRetentionInSecs: 20},
+			errDatabaseInvalidNumShards},
+		{schema.DatabaseProperties{Name: "Foo", NumShards: -100, MaxRetentionInSecs: 20},
+			errDatabaseInvalidNumShards},
+		{schema.DatabaseProperties{Name: "Foo", NumShards: 1024},
+			errDatabaseInvalidMaxRetentionInSecs},
+		{schema.DatabaseProperties{Name: "Foo", NumShards: 1024, MaxRetentionInSecs: -100},
+			errDatabaseInvalidMaxRetentionInSecs},
+	}
+
+	for _, test := range tests {
+		require.Equal(t, test.err, ts.sp.AddDatabase(test.db))
+	}
+}
+
 func TestPlacement_AddDatabase(t *testing.T) {
 	ts := newTestSuite(t)
 	ts.clock.Add(time.Second * 34)
@@ -139,6 +163,29 @@ func TestPlacement_AddDatabaseConflictsWithNewlyAdded(t *testing.T) {
 
 	// Should not modify existing changes
 	ts.requireEqualChanges(ts.latestChanges(), existingChanges)
+}
+
+func TestPlacement_JoinClusterInvalid(t *testing.T) {
+	ts := newTestSuite(t)
+
+	require.NoError(t, ts.sp.AddDatabase(schema.DatabaseProperties{
+		Name:               "foo",
+		NumShards:          1024,
+		MaxRetentionInSecs: testRetentionInSecs,
+	}))
+
+	tests := []struct {
+		c   schema.ClusterProperties
+		err error
+	}{
+		{schema.ClusterProperties{Weight: 1024, Type: "m3db"}, errClusterInvalidName},
+		{schema.ClusterProperties{Name: "c1", Type: "m3db"}, errClusterInvalidWeight},
+		{schema.ClusterProperties{Name: "c1", Weight: 1024}, errClusterInvalidType},
+	}
+
+	for _, test := range tests {
+		require.Equal(t, test.err, ts.sp.JoinCluster("foo", test.c))
+	}
 }
 
 func TestPlacement_JoinClusterOnNewDatabase(t *testing.T) {

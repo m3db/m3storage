@@ -38,6 +38,13 @@ var (
 	errDatabaseNotFound      = errors.New("database not found")
 	errClusterAlreadyExists  = errors.New("cluster already exists")
 	errClusterNotFound       = errors.New("cluster not found")
+
+	errDatabaseInvalidName               = errors.New("database name cannot be empty")
+	errDatabaseInvalidNumShards          = errors.New("database number of shards cannot be <= 0")
+	errDatabaseInvalidMaxRetentionInSecs = errors.New("database max retention in seconds cannot be <= 0")
+	errClusterInvalidName                = errors.New("cluster name cannot be empty")
+	errClusterInvalidWeight              = errors.New("cluster weight cannot be <= 0")
+	errClusterInvalidType                = errors.New("cluster type cannot be empty")
 )
 
 // CommitOptions are options for performing a commit
@@ -134,6 +141,18 @@ type storagePlacement struct {
 }
 
 func (sp storagePlacement) AddDatabase(db schema.DatabaseProperties) error {
+	if db.Name == "" {
+		return errDatabaseInvalidName
+	}
+
+	if db.NumShards <= 0 {
+		return errDatabaseInvalidNumShards
+	}
+
+	if db.MaxRetentionInSecs <= 0 {
+		return errDatabaseInvalidMaxRetentionInSecs
+	}
+
 	return sp.mgr.Change(wrapFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
 		if _, exists := p.Databases[db.Name]; exists {
 			return errDatabaseAlreadyExists
@@ -162,6 +181,18 @@ func (sp storagePlacement) AddDatabase(db schema.DatabaseProperties) error {
 }
 
 func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties) error {
+	if c.Name == "" {
+		return errClusterInvalidName
+	}
+
+	if c.Weight == 0 {
+		return errClusterInvalidWeight
+	}
+
+	if c.Type == "" {
+		return errClusterInvalidType
+	}
+
 	return sp.mgr.Change(wrapFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
 		db, dbChanges := sp.findDatabase(p, changes, dbName)
 		if db == nil {
