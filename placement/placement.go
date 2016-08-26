@@ -21,6 +21,7 @@ package placement
 import (
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/facebookgo/clock"
@@ -245,7 +246,7 @@ func (sp storagePlacement) CommitChanges(version int, opts CommitOptions) error 
 		for _, existing := range p.Databases {
 			existingDatabases = append(existingDatabases, existing)
 		}
-		sort.Sort(databasesByMaxRetentionInSecs(existingDatabases))
+		sort.Sort(databasesByRetention(existingDatabases))
 
 		// Add new databases
 		for _, add := range changes.DatabaseAdds {
@@ -275,14 +276,9 @@ func (sp storagePlacement) commitNewDatabase(
 	// Check to see if there are any existing databases that cover this retention
 	// period - if so then we need to do a staged cutover to that database
 	for _, existing := range existingDatabases {
-		if len(existing.Clusters) == 0 {
-			// Existing doesn't have any assigned clusters yet, don't need to cutover from it
-			break
-		}
-
 		if existing.MaxRetentionInSecs < db.MaxRetentionInSecs {
 			// We're not pulling traffic from this database
-			break
+			continue
 		}
 
 		var (
@@ -297,6 +293,8 @@ func (sp storagePlacement) commitNewDatabase(
 
 		sp.log.Infof("Database %s needs staged cutover from %s; reads starting @ %s, writes starting @ %s, reads to %s stopping @ %s",
 			db.Name, existing.Name, readCutoverTime, writeCutoverTime, existing.Name, cutoverCompleteTime)
+
+		break
 	}
 
 	p.Databases[db.Name] = db
@@ -451,8 +449,14 @@ func (sp storagePlacement) commitDatabaseChanges(
 			Shards:      shards,
 			CutoffTime:  xtime.ToUnixMillis(cutoffTime),
 		})
+
 	}
 
+	// Sort rules by cluster name so that they have a deterministic ordering...
+	sort.Sort(cutoffsByCluster(rules.Cutoffs))
+	sort.Sort(cutoversByCluster(rules.Cutovers))
+
+	// ...and add to the list of mappings for the database
 	db.MappingRules = append(db.MappingRules, rules)
 	return nil
 }
@@ -470,9 +474,6 @@ func (sp storagePlacement) computeDesiredNumShards(
 	// Compute the total weight of all clusters
 	var totalWeight uint32
 	for _, c := range clusters {
-		if c.Status != schema.ClusterStatus_ACTIVE {
-			continue
-		}
 		totalWeight += c.Weight
 	}
 
@@ -598,14 +599,32 @@ func (opts *commitOptions) GetTransitionDelay() time.Duration { return opts.tran
 type shardsInOrder []uint32
 
 func (shards shardsInOrder) Len() int           { return len(shards) }
-func (shards shardsInOrder) Less(i, j int) bool { return shards[i] < shards[j] }
 func (shards shardsInOrder) Swap(i, j int)      { shards[i], shards[j] = shards[j], shards[i] }
+func (shards shardsInOrder) Less(i, j int) bool { return shards[i] < shards[j] }
 
 // sort.Interface for databases by MaxRetentionInSecs
-type databasesByMaxRetentionInSecs []*schema.Database
+type databasesByRetention []*schema.Database
 
-func (dbs databasesByMaxRetentionInSecs) Len() int { return len(dbs) }
-func (dbs databasesByMaxRetentionInSecs) Less(i, j int) bool {
+func (dbs databasesByRetention) Len() int      { return len(dbs) }
+func (dbs databasesByRetention) Swap(i, j int) { dbs[i], dbs[j] = dbs[j], dbs[i] }
+func (dbs databasesByRetention) Less(i, j int) bool {
 	return dbs[i].MaxRetentionInSecs < dbs[j].MaxRetentionInSecs
 }
-func (dbs databasesByMaxRetentionInSecs) Swap(i, j int) { dbs[i], dbs[j] = dbs[j], dbs[i] }
+
+// sort.Interface for CutoffRule by cluster name
+type cutoffsByCluster []*schema.CutoffRule
+
+func (c cutoffsByCluster) Len() int      { return len(c) }
+func (c cutoffsByCluster) Swap(i, j int) { c[i], c[j] = c[j], c[i] }
+func (c cutoffsByCluster) Less(i, j int) bool {
+	return strings.Compare(c[i].ClusterName, c[j].ClusterName) < 0
+}
+
+// sort.Interface for CutoverRule by cluster name
+type cutoversByCluster []*schema.CutoverRule
+
+func (c cutoversByCluster) Len() int      { return len(c) }
+func (c cutoversByCluster) Swap(i, j int) { c[i], c[j] = c[j], c[i] }
+func (c cutoversByCluster) Less(i, j int) bool {
+	return strings.Compare(c[i].ClusterName, c[j].ClusterName) < 0
+}
