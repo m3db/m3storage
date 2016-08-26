@@ -20,6 +20,7 @@ package placement
 
 import (
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/facebookgo/clock"
@@ -334,14 +335,25 @@ func (sp storagePlacement) commitDatabaseChanges(
 		db.ShardAssignments[name].Shards = nil
 	}
 
-	// Rebalance shards on the active clusters.
-	// pass 1, return shards on overweight clusters to the "unowned" pool
-	desiredNumShards := sp.computeDesiredNumShards(db.Clusters, int(db.NumShards))
+	// Compute active clusters, sorting the names so that assignments are deterministic (for testing)
+	var (
+		activeClusters     = make(map[string]*schema.Cluster, len(db.Clusters))
+		activeClusterNames = make([]string, 0, len(db.Clusters))
+	)
 	for name, c := range db.Clusters {
 		if c.Status != schema.ClusterStatus_ACTIVE {
 			continue
 		}
 
+		activeClusters[name] = c
+		activeClusterNames = append(activeClusterNames, name)
+	}
+	sort.Strings(activeClusterNames)
+
+	// Rebalance shards on the active clusters.
+	// pass 1, return shards on overweight clusters to the "unowned" pool
+	desiredNumShards := sp.computeDesiredNumShards(activeClusters, int(db.NumShards))
+	for _, name := range activeClusterNames {
 		var (
 			desired  = desiredNumShards[name]
 			assigned = db.ShardAssignments[name]
@@ -353,17 +365,18 @@ func (sp storagePlacement) commitDatabaseChanges(
 		}
 
 		numToRemove := len(assigned.Shards) - desired
-		removed, assigned.Shards = assigned.Shards[:numToRemove], assigned.Shards[numToRemove+1:]
+		sp.log.Infof("%s:%s wants %d shards, has %d shards, returning %d",
+			db.Name, name, desired, len(assigned.Shards), numToRemove)
+		removed, assigned.Shards = assigned.Shards[:numToRemove], assigned.Shards[numToRemove:]
 		unowned = append(unowned, removed...)
 		shardCutoffs[name] = append(shardCutoffs[name], removed...)
 	}
 
-	// pass 2, assign shards from the "unowned" pool to underweight clusters
-	for name, c := range db.Clusters {
-		if c.Status != schema.ClusterStatus_ACTIVE {
-			continue
-		}
+	// Sort the unowned shards so that assignments are deterministic (for testing)
+	sort.Sort(shardsInOrder(unowned))
 
+	// pass 2, assign shards from the "unowned" pool to underweight clusters
+	for _, name := range activeClusterNames {
 		var (
 			desired  = desiredNumShards[name]
 			assigned = db.ShardAssignments[name]
@@ -376,9 +389,14 @@ func (sp storagePlacement) commitDatabaseChanges(
 
 		// TODO(mmihic): Maybe validate that the numToAdd is >= the number remaining
 		numToAdd := desired - len(assigned.Shards)
+		sp.log.Infof("%s:%s wants %d shards, has %d shards, pulling %d shards from %d unowned",
+			db.Name, name, desired, len(assigned.Shards), numToAdd, len(unowned))
 		added, unowned = unowned[:numToAdd], unowned[numToAdd:]
 		shardCutovers[name] = append(shardCutovers[name], added...)
 		assigned.Shards = append(assigned.Shards, added...)
+
+		// Sort the shards so if we unassign later, the results will be deterministic
+		sort.Sort(shardsInOrder(assigned.Shards))
 	}
 
 	// now build out all of the rules
@@ -518,6 +536,7 @@ func wrapFn(f func(*schema.Placement, *schema.PlacementChanges) error) func(prot
 	}
 }
 
+// storagePlacementOptions
 type storagePlacementOptions struct {
 	clock  clock.Clock
 	logger xlog.Logger
@@ -536,6 +555,7 @@ func (opts *storagePlacementOptions) Logger(logger xlog.Logger) StoragePlacement
 	return opts
 }
 
+// commitOptions
 type commitOptions struct {
 	rolloutDelay    time.Duration
 	transitionDelay time.Duration
@@ -553,3 +573,10 @@ func (opts *commitOptions) TransitionDelay(t time.Duration) CommitOptions {
 
 func (opts *commitOptions) GetRolloutDelay() time.Duration    { return opts.rolloutDelay }
 func (opts *commitOptions) GetTransitionDelay() time.Duration { return opts.transitionDelay }
+
+// sort.Interface for shards
+type shardsInOrder []uint32
+
+func (shards shardsInOrder) Len() int           { return len(shards) }
+func (shards shardsInOrder) Less(i, j int) bool { return shards[i] < shards[j] }
+func (shards shardsInOrder) Swap(i, j int)      { shards[i], shards[j] = shards[j], shards[i] }
