@@ -176,10 +176,10 @@ func (sp storagePlacement) AddDatabase(db schema.DatabaseProperties) error {
 			}
 		}
 
-		for _, newlyAdded := range p.Databases {
-			if newlyAdded.Properties.MaxRetentionInSecs == db.MaxRetentionInSecs {
+		for _, newlyAdded := range changes.DatabaseAdds {
+			if newlyAdded.Database.Properties.MaxRetentionInSecs == db.MaxRetentionInSecs {
 				sp.log.Errorf("database %s retention period conflicts with newly added database %s",
-					db.Name, newlyAdded.Properties.Name)
+					db.Name, newlyAdded.Database.Properties.Name)
 				return errDatabaseRetentionPeriodConflict
 			}
 		}
