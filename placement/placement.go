@@ -153,7 +153,7 @@ func (sp storagePlacement) AddDatabase(db schema.DatabaseProperties) error {
 		return errDatabaseInvalidMaxRetentionInSecs
 	}
 
-	return sp.mgr.Change(wrapFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
+	return sp.mgr.Change(modificationFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
 		if _, exists := p.Databases[db.Name]; exists {
 			return errDatabaseAlreadyExists
 		}
@@ -193,7 +193,7 @@ func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties
 		return errClusterInvalidType
 	}
 
-	return sp.mgr.Change(wrapFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
+	return sp.mgr.Change(modificationFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
 		db, dbChanges := sp.findDatabase(p, changes, dbName)
 		if db == nil {
 			return errDatabaseNotFound
@@ -224,7 +224,7 @@ func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties
 }
 
 func (sp storagePlacement) DecommissionCluster(dbName, cName string) error {
-	return sp.mgr.Change(wrapFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
+	return sp.mgr.Change(modificationFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
 		db, dbChanges := sp.findDatabase(p, changes, dbName)
 		if db == nil {
 			return errDatabaseNotFound
@@ -270,7 +270,7 @@ func (sp storagePlacement) GetPendingChanges() (int, *schema.Placement, *schema.
 }
 
 func (sp storagePlacement) CommitChanges(version int, opts CommitOptions) error {
-	return sp.mgr.Commit(version, wrapFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
+	return sp.mgr.Commit(version, modificationFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
 		sp.log.Infof("committing changes at version %d", version)
 
 		// Pull all existing databases, and order them by max retention period.  This will be used
@@ -568,8 +568,9 @@ func (sp storagePlacement) findDatabase(
 
 type placementUpdateFn func(*schema.Placement, *schema.PlacementChanges) error
 
-// wrapFn wraps a placement modification function
-func wrapFn(f func(*schema.Placement, *schema.PlacementChanges) error) func(proto.Message, proto.Message) error {
+// modificationFn wraps a placement modification function
+func modificationFn(f func(*schema.Placement, *schema.PlacementChanges) error,
+) func(proto.Message, proto.Message) error {
 	return func(protoConfig, protoChanges proto.Message) error {
 		var (
 			config  = protoConfig.(*schema.Placement)
