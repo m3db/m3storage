@@ -37,7 +37,18 @@ type ClusterMappingProvider interface {
 type ShardClusterMappings interface {
 	// MappingsFor returns the currently in-effect mappings for the given shard
 	// and retention policy.
-	MappingsFor(shard uint32, policy RetentionPolicy) []ClusterMapping
+	MappingsFor(shard uint32, policy RetentionPolicy) ClusterMappingIter
+}
+
+// ClusterMappingIter is an iterator over ClusterMappings.  Allows provider to
+// control how these are stored internally
+type ClusterMappingIter interface {
+	// Next moves to the next mapping, returning false if there are no more
+	// mappings
+	Next() bool
+
+	// Current returns the current mapping
+	Current() ClusterMapping
 }
 
 // A ClusterMapping defines which cluster holds the datapoints within a given timeframe
@@ -145,10 +156,12 @@ func (p *clusterQueryPlanner) buildClusterQueryPlan(shard uint32, queries []quer
 		}
 
 		// Find all of the rules that apply to the query time range.
-		p.log.Debugf("building query plan from %v to %v for period %s over %d mappings",
-			q.Range.Start, q.Range.End, q.RetentionPolicy.RetentionPeriod().Duration(), len(mappings))
+		p.log.Debugf("building query plan from %v to %v for period %s",
+			q.Range.Start, q.Range.End, q.RetentionPolicy.RetentionPeriod().Duration())
 
-		for _, m := range mappings {
+		for mappings.Next() {
+			m := mappings.Current()
+
 			if !m.CutoffTime().IsZero() && m.CutoffTime().Before(q.Range.Start) {
 				// We've reached a rule that ends before the start of the query - no more rules apply
 				p.log.Debugf("cluster mapping cutoff time %s before query start %s, stopping build",

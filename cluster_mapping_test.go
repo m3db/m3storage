@@ -170,6 +170,32 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 
 type fakeShardClusterMappings map[time.Duration][]ClusterMapping
 
-func (scm fakeShardClusterMappings) MappingsFor(shard uint32, policy RetentionPolicy) []ClusterMapping {
-	return scm[policy.RetentionPeriod().Duration()]
+func (scm fakeShardClusterMappings) MappingsFor(shard uint32, policy RetentionPolicy) ClusterMappingIter {
+	return &fakeClusterMappingIter{
+		mappings: scm[policy.RetentionPeriod().Duration()],
+		current:  0,
+		next:     0,
+	}
+}
+
+type fakeClusterMappingIter struct {
+	mappings      []ClusterMapping
+	current, next int
+}
+
+func (i *fakeClusterMappingIter) Next() bool {
+	if i.next >= len(i.mappings) {
+		return false
+	}
+
+	i.current, i.next = i.next, i.next+1
+	return true
+}
+
+func (i *fakeClusterMappingIter) Current() ClusterMapping {
+	if i.current < len(i.mappings) {
+		return i.mappings[i.current]
+	}
+
+	return nil
 }
