@@ -103,7 +103,39 @@ func TestPlacement_AddDatabase(t *testing.T) {
 	}, changes)
 }
 
-func TestPlacement_AddDatabaseConflictsWithExisting(t *testing.T) {
+func TestPlacement_AddDatabaseRetentionPeriodConflictsWithExisting(t *testing.T) {
+	ts := newTestSuite(t)
+	ts.clock.Add(time.Second * 34)
+
+	// Force create a placement with the given database
+	ts.forcePlacement(&schema.Placement{
+		Databases: map[string]*schema.Database{
+			"foo": &schema.Database{
+				Properties: &schema.DatabaseProperties{
+					Name:               "foo",
+					MaxRetentionInSecs: testRetentionInSecs,
+				},
+			},
+		},
+	})
+
+	// Attempting to add a database with the same name should fail
+	err := ts.sp.AddDatabase(schema.DatabaseProperties{
+		Name:               "another-foo",
+		MaxRetentionInSecs: testRetentionInSecs,
+		NumShards:          testNumShards,
+	})
+	require.Equal(t, errDatabaseRetentionPeriodConflict, err)
+
+	// and should not modify the placement changes
+	changes := ts.latestChanges()
+	ts.requireEqualChanges(&schema.PlacementChanges{
+		DatabaseAdds:    map[string]*schema.DatabaseAdd{},
+		DatabaseChanges: map[string]*schema.DatabaseChanges{},
+	}, changes)
+}
+
+func TestPlacement_AddDatabaseNameConflictsWithExisting(t *testing.T) {
 	ts := newTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -132,10 +164,9 @@ func TestPlacement_AddDatabaseConflictsWithExisting(t *testing.T) {
 		DatabaseAdds:    map[string]*schema.DatabaseAdd{},
 		DatabaseChanges: map[string]*schema.DatabaseChanges{},
 	}, changes)
-
 }
 
-func TestPlacement_AddDatabaseConflictsWithNewlyAdded(t *testing.T) {
+func TestPlacement_AddDatabaseNameConflictsWithNewlyAdded(t *testing.T) {
 	ts := newTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -166,6 +197,42 @@ func TestPlacement_AddDatabaseConflictsWithNewlyAdded(t *testing.T) {
 		NumShards:          testNumShards,
 	})
 	require.Equal(t, errDatabaseAlreadyExists, err)
+
+	// Should not modify existing changes
+	ts.requireEqualChanges(ts.latestChanges(), existingChanges)
+}
+
+func TestPlacement_AddDatabaseRetentionPeriodConflictsWithNewlyAdded(t *testing.T) {
+	ts := newTestSuite(t)
+	ts.clock.Add(time.Second * 34)
+
+	// Force create placement changes with that database in the adds list
+	existingChanges := &schema.PlacementChanges{
+		DatabaseAdds: map[string]*schema.DatabaseAdd{
+			"foo": &schema.DatabaseAdd{
+				Database: &schema.Database{
+					Properties: &schema.DatabaseProperties{
+						Name:               "foo",
+						MaxRetentionInSecs: testRetentionInSecs,
+						NumShards:          testNumShards,
+					},
+					CreatedAt:        xtime.ToUnixMillis(ts.clock.Now()),
+					LastUpdatedAt:    xtime.ToUnixMillis(ts.clock.Now()),
+					Clusters:         make(map[string]*schema.Cluster),
+					ShardAssignments: make(map[string]*schema.ClusterShardAssignment),
+				}}},
+		DatabaseChanges: map[string]*schema.DatabaseChanges{
+			"foo": &schema.DatabaseChanges{}},
+	}
+	ts.forceChanges(existingChanges)
+
+	// Should fail adding a duplicate database
+	err := ts.sp.AddDatabase(schema.DatabaseProperties{
+		Name:               "another-foo",
+		MaxRetentionInSecs: testRetentionInSecs,
+		NumShards:          testNumShards,
+	})
+	require.Equal(t, errDatabaseRetentionPeriodConflict, err)
 
 	// Should not modify existing changes
 	ts.requireEqualChanges(ts.latestChanges(), existingChanges)

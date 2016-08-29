@@ -34,10 +34,11 @@ import (
 )
 
 var (
-	errDatabaseAlreadyExists = errors.New("database already exists")
-	errDatabaseNotFound      = errors.New("database not found")
-	errClusterAlreadyExists  = errors.New("cluster already exists")
-	errClusterNotFound       = errors.New("cluster not found")
+	errDatabaseAlreadyExists           = errors.New("database already exists")
+	errDatabaseNotFound                = errors.New("database not found")
+	errClusterAlreadyExists            = errors.New("cluster already exists")
+	errClusterNotFound                 = errors.New("cluster not found")
+	errDatabaseRetentionPeriodConflict = errors.New("retention period conflicts with another database")
 
 	errDatabaseInvalidName               = errors.New("database name cannot be empty")
 	errDatabaseInvalidNumShards          = errors.New("database number of shards cannot be <= 0")
@@ -154,14 +155,36 @@ func (sp storagePlacement) AddDatabase(db schema.DatabaseProperties) error {
 	}
 
 	return sp.mgr.Change(modificationFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
+		// Make sure the database doesn't already exist
 		if _, exists := p.Databases[db.Name]; exists {
+			sp.log.Errorf("database %s already exists", db.Name)
 			return errDatabaseAlreadyExists
 		}
 
 		if _, newlyAdded := changes.DatabaseAdds[db.Name]; newlyAdded {
+			sp.log.Errorf("database %s already added in this changeset", db.Name)
 			return errDatabaseAlreadyExists
 		}
 
+		// Make sure the retention period for this database doesn't line up
+		// directly with any other database
+		for _, existing := range p.Databases {
+			if existing.Properties.MaxRetentionInSecs == db.MaxRetentionInSecs {
+				sp.log.Errorf("database %s retention period conflicts with existing database %s",
+					db.Name, existing.Properties.Name)
+				return errDatabaseRetentionPeriodConflict
+			}
+		}
+
+		for _, newlyAdded := range p.Databases {
+			if newlyAdded.Properties.MaxRetentionInSecs == db.MaxRetentionInSecs {
+				sp.log.Errorf("database %s retention period conflicts with newly added database %s",
+					db.Name, newlyAdded.Properties.Name)
+				return errDatabaseRetentionPeriodConflict
+			}
+		}
+
+		// Add the database
 		sp.log.Infof("adding database %s (shards: %d, max retention in secs: %d)",
 			db.Name, db.NumShards, db.MaxRetentionInSecs)
 		now := sp.clock.Now()
@@ -200,10 +223,13 @@ func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties
 		}
 
 		if _, existing := db.Clusters[c.Name]; existing {
+			sp.log.Errorf("cluster %s already exists in database %s", c.Name, db.Properties.Name)
 			return errClusterAlreadyExists
 		}
 
 		if _, joining := dbChanges.Joins[c.Name]; joining {
+			sp.log.Errorf("cluster %s already joined to database %s in this changeset",
+				c.Name, db.Properties.Name)
 			return errClusterAlreadyExists
 		}
 
