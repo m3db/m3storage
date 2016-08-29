@@ -167,13 +167,11 @@ func (sp storagePlacement) AddDatabase(db schema.DatabaseProperties) error {
 		now := sp.clock.Now()
 		changes.DatabaseAdds[db.Name] = &schema.DatabaseAdd{
 			Database: &schema.Database{
-				Name:               db.Name,
-				NumShards:          db.NumShards,
-				MaxRetentionInSecs: db.MaxRetentionInSecs,
-				CreatedAt:          xtime.ToUnixMillis(now),
-				LastUpdatedAt:      xtime.ToUnixMillis(now),
-				Clusters:           make(map[string]*schema.Cluster),
-				ShardAssignments:   make(map[string]*schema.ClusterShardAssignment),
+				Properties:       &db,
+				CreatedAt:        xtime.ToUnixMillis(now),
+				LastUpdatedAt:    xtime.ToUnixMillis(now),
+				Clusters:         make(map[string]*schema.Cluster),
+				ShardAssignments: make(map[string]*schema.ClusterShardAssignment),
 			},
 		}
 
@@ -216,11 +214,9 @@ func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties
 		sp.log.Infof("joining cluster %s (weight:%d, type:%s) to database %s", c.Name, c.Weight, c.Type, dbName)
 		dbChanges.Joins[c.Name] = &schema.ClusterJoin{
 			Cluster: &schema.Cluster{
-				Name:      c.Name,
-				Type:      c.Type,
-				Weight:    c.Weight,
-				Status:    schema.ClusterStatus_ACTIVE,
-				CreatedAt: xtime.ToUnixMillis(sp.clock.Now()),
+				Properties: &c,
+				Status:     schema.ClusterStatus_ACTIVE,
+				CreatedAt:  xtime.ToUnixMillis(sp.clock.Now()),
 			},
 		}
 		return nil
@@ -308,12 +304,12 @@ func (sp storagePlacement) commitNewDatabase(
 	db *schema.Database,
 	existingDatabases []*schema.Database,
 	opts CommitOptions) error {
-	sp.log.Infof("Creating initial database configuration for %s", db.Name)
+	sp.log.Infof("creating initial database configuration for %s", db.Properties.Name)
 
 	// Check to see if there are any existing databases that cover this retention
 	// period - if so then we need to do a staged cutover to that database
 	for _, existing := range existingDatabases {
-		if existing.MaxRetentionInSecs < db.MaxRetentionInSecs {
+		if existing.Properties.MaxRetentionInSecs < db.Properties.MaxRetentionInSecs {
 			// We're not pulling traffic from this database
 			continue
 		}
@@ -328,13 +324,14 @@ func (sp storagePlacement) commitNewDatabase(
 		db.WriteCutoverTime = xtime.ToUnixMillis(writeCutoverTime)
 		db.CutoverCompleteTime = xtime.ToUnixMillis(cutoverCompleteTime)
 
-		sp.log.Infof("Database %s needs staged cutover from %s; reads starting @ %s, writes starting @ %s, reads to %s stopping @ %s",
-			db.Name, existing.Name, readCutoverTime, writeCutoverTime, existing.Name, cutoverCompleteTime)
+		sp.log.Infof("database %s needs staged cutover from %s; reads starting @ %s, writes starting @ %s, reads to %s stopping @ %s",
+			db.Properties.Name, existing.Properties.Name,
+			readCutoverTime, writeCutoverTime, existing.Properties.Name, cutoverCompleteTime)
 
 		break
 	}
 
-	p.Databases[db.Name] = db
+	p.Databases[db.Properties.Name] = db
 	return nil
 }
 
@@ -344,7 +341,7 @@ func (sp storagePlacement) commitDatabaseChanges(
 	changes *schema.DatabaseChanges,
 	opts CommitOptions) error {
 
-	sp.log.Infof("Processing changes to database %s", db.Name)
+	sp.log.Infof("processing changes to database %s", db.Properties.Name)
 	var (
 		unowned       []uint32
 		shardCutoffs  = make(map[string][]uint32)
@@ -356,8 +353,8 @@ func (sp storagePlacement) commitDatabaseChanges(
 		db.Clusters = make(map[string]*schema.Cluster)
 
 		// Every shard is unowned
-		unowned = make([]uint32, 0, int(db.NumShards))
-		for n := uint32(0); n < uint32(db.NumShards); n++ {
+		unowned = make([]uint32, 0, int(db.Properties.NumShards))
+		for n := uint32(0); n < uint32(db.Properties.NumShards); n++ {
 			unowned = append(unowned, n)
 		}
 	}
@@ -368,7 +365,7 @@ func (sp storagePlacement) commitDatabaseChanges(
 
 	// Add all joining cluster to the set of active clusters
 	for name, join := range changes.Joins {
-		sp.log.Infof("Joining cluster %s:%s", db.Name, name)
+		sp.log.Infof("joining cluster %s:%s", db.Properties.Name, name)
 		db.Clusters[name] = join.Cluster
 		db.ShardAssignments[name] = &schema.ClusterShardAssignment{}
 	}
@@ -376,7 +373,7 @@ func (sp storagePlacement) commitDatabaseChanges(
 	// Go through all decomissioned clusters, remove them from the active
 	// clusters list, and add their shards to an "unowned" pool
 	for name := range changes.Decomms {
-		sp.log.Infof("Decommissioning cluster %s:%s", db.Name, name)
+		sp.log.Infof("decommissioning cluster %s:%s", db.Properties.Name, name)
 		db.Clusters[name].Status = schema.ClusterStatus_DECOMMISSIONING
 
 		shards := db.ShardAssignments[name]
@@ -404,9 +401,9 @@ func (sp storagePlacement) commitDatabaseChanges(
 	}
 	sort.Strings(activeClusterNames)
 
-	// Rebalance shards on the active clusters.
-	// pass 1, return shards on overweight clusters to the "unowned" pool
-	desiredNumShards := sp.computeDesiredNumShards(activeClusters, int(db.NumShards))
+	// Rebalance shards on the active clusters.  pass 1, return shards on
+	// overweight clusters to the "unowned" pool
+	desiredNumShards := sp.computeDesiredNumShards(activeClusters, int(db.Properties.NumShards))
 	for _, name := range activeClusterNames {
 		var (
 			desired  = desiredNumShards[name]
@@ -420,13 +417,14 @@ func (sp storagePlacement) commitDatabaseChanges(
 
 		numToRemove := len(assigned.Shards) - desired
 		sp.log.Infof("%s:%s wants %d shards, has %d shards, returning %d",
-			db.Name, name, desired, len(assigned.Shards), numToRemove)
+			db.Properties.Name, name, desired, len(assigned.Shards), numToRemove)
 		removed, assigned.Shards = assigned.Shards[:numToRemove], assigned.Shards[numToRemove:]
 		unowned = append(unowned, removed...)
 		shardCutoffs[name] = append(shardCutoffs[name], removed...)
 	}
 
-	// Sort the unowned shards so that assignments are deterministic (for testing)
+	// Sort the unowned shards so that assignments are deterministic (for
+	// testing)
 	sort.Sort(shardsInOrder(unowned))
 
 	// pass 2, assign shards from the "unowned" pool to underweight clusters
@@ -444,7 +442,7 @@ func (sp storagePlacement) commitDatabaseChanges(
 		// TODO(mmihic): Maybe validate that the numToAdd is >= the number remaining
 		numToAdd := desired - len(assigned.Shards)
 		sp.log.Infof("%s:%s wants %d shards, has %d shards, pulling %d shards from %d unowned",
-			db.Name, name, desired, len(assigned.Shards), numToAdd, len(unowned))
+			db.Properties.Name, name, desired, len(assigned.Shards), numToAdd, len(unowned))
 		added, unowned = unowned[:numToAdd], unowned[numToAdd:]
 		shardCutovers[name] = append(shardCutovers[name], added...)
 		assigned.Shards = append(assigned.Shards, added...)
@@ -466,8 +464,8 @@ func (sp storagePlacement) commitDatabaseChanges(
 	)
 
 	for name, shards := range shardCutovers {
-		sp.log.Infof("Shifting %d shards onto %s:%s at (reads starting @ %v, writes starting @ %v)",
-			len(shards), db.Name, name, readCutoverTime, writeCutoverTime)
+		sp.log.Infof("shifting %d shards onto %s:%s at (reads starting @ %v, writes starting @ %v)",
+			len(shards), db.Properties.Name, name, readCutoverTime, writeCutoverTime)
 
 		rules.Cutovers = append(rules.Cutovers, &schema.CutoverRule{
 			ClusterName:      name,
@@ -478,8 +476,8 @@ func (sp storagePlacement) commitDatabaseChanges(
 	}
 
 	for name, shards := range shardCutoffs {
-		sp.log.Infof("Shifting %d shards off %s:%s (reads stopping @ %v)",
-			len(shards), db.Name, name, cutoffTime)
+		sp.log.Infof("shifting %d shards off %s:%s (reads stopping @ %v)",
+			len(shards), db.Properties.Name, name, cutoffTime)
 
 		rules.Cutoffs = append(rules.Cutoffs, &schema.CutoffRule{
 			ClusterName: name,
@@ -511,7 +509,7 @@ func (sp storagePlacement) computeDesiredNumShards(
 	// Compute the total weight of all clusters
 	var totalWeight uint32
 	for _, c := range clusters {
-		totalWeight += c.Weight
+		totalWeight += c.Properties.Weight
 	}
 
 	// compute desired # of shards based on relative weight of each cluster
@@ -521,7 +519,7 @@ func (sp storagePlacement) computeDesiredNumShards(
 		desiredNumShards = make(map[string]int, len(clusters))
 	)
 	for name, c := range clusters {
-		relativeWeight := (float64(c.Weight) / float64(totalWeight))
+		relativeWeight := (float64(c.Properties.Weight) / float64(totalWeight))
 		numShards := int(relativeWeight * float64(totalShards))
 		if numShards > shardsRemaining {
 			numShards = shardsRemaining
@@ -539,7 +537,7 @@ func (sp storagePlacement) computeDesiredNumShards(
 	// cluster and add the remainder to it. we pick the oldest cluster to have a
 	// deterministic mapping and avoid moving shards around unnecessarily
 	if shardsRemaining > 0 {
-		desiredNumShards[oldestCluster.Name] += shardsRemaining
+		desiredNumShards[oldestCluster.Properties.Name] += shardsRemaining
 	}
 	return desiredNumShards
 }
@@ -645,7 +643,7 @@ type databasesByRetention []*schema.Database
 func (dbs databasesByRetention) Len() int      { return len(dbs) }
 func (dbs databasesByRetention) Swap(i, j int) { dbs[i], dbs[j] = dbs[j], dbs[i] }
 func (dbs databasesByRetention) Less(i, j int) bool {
-	return dbs[i].MaxRetentionInSecs < dbs[j].MaxRetentionInSecs
+	return dbs[i].Properties.MaxRetentionInSecs < dbs[j].Properties.MaxRetentionInSecs
 }
 
 // sort.Interface for CutoffRule by cluster name

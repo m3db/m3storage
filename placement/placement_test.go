@@ -88,13 +88,15 @@ func TestPlacement_AddDatabase(t *testing.T) {
 		DatabaseAdds: map[string]*schema.DatabaseAdd{
 			"foo": &schema.DatabaseAdd{
 				Database: &schema.Database{
-					Name:               "foo",
-					MaxRetentionInSecs: testRetentionInSecs,
-					NumShards:          testNumShards,
-					CreatedAt:          xtime.ToUnixMillis(ts.clock.Now()),
-					LastUpdatedAt:      xtime.ToUnixMillis(ts.clock.Now()),
-					Clusters:           make(map[string]*schema.Cluster),
-					ShardAssignments:   make(map[string]*schema.ClusterShardAssignment),
+					Properties: &schema.DatabaseProperties{
+						Name:               "foo",
+						MaxRetentionInSecs: testRetentionInSecs,
+						NumShards:          testNumShards,
+					},
+					CreatedAt:        xtime.ToUnixMillis(ts.clock.Now()),
+					LastUpdatedAt:    xtime.ToUnixMillis(ts.clock.Now()),
+					Clusters:         make(map[string]*schema.Cluster),
+					ShardAssignments: make(map[string]*schema.ClusterShardAssignment),
 				}}},
 		DatabaseChanges: map[string]*schema.DatabaseChanges{
 			"foo": &schema.DatabaseChanges{}},
@@ -109,7 +111,9 @@ func TestPlacement_AddDatabaseConflictsWithExisting(t *testing.T) {
 	ts.forcePlacement(&schema.Placement{
 		Databases: map[string]*schema.Database{
 			"foo": &schema.Database{
-				Name: "foo",
+				Properties: &schema.DatabaseProperties{
+					Name: "foo",
+				},
 			},
 		},
 	})
@@ -140,13 +144,15 @@ func TestPlacement_AddDatabaseConflictsWithNewlyAdded(t *testing.T) {
 		DatabaseAdds: map[string]*schema.DatabaseAdd{
 			"foo": &schema.DatabaseAdd{
 				Database: &schema.Database{
-					Name:               "foo",
-					MaxRetentionInSecs: testRetentionInSecs,
-					NumShards:          testNumShards,
-					CreatedAt:          xtime.ToUnixMillis(ts.clock.Now()),
-					LastUpdatedAt:      xtime.ToUnixMillis(ts.clock.Now()),
-					Clusters:           make(map[string]*schema.Cluster),
-					ShardAssignments:   make(map[string]*schema.ClusterShardAssignment),
+					Properties: &schema.DatabaseProperties{
+						Name:               "foo",
+						MaxRetentionInSecs: testRetentionInSecs,
+						NumShards:          testNumShards,
+					},
+					CreatedAt:        xtime.ToUnixMillis(ts.clock.Now()),
+					LastUpdatedAt:    xtime.ToUnixMillis(ts.clock.Now()),
+					Clusters:         make(map[string]*schema.Cluster),
+					ShardAssignments: make(map[string]*schema.ClusterShardAssignment),
 				}}},
 		DatabaseChanges: map[string]*schema.DatabaseChanges{
 			"foo": &schema.DatabaseChanges{}},
@@ -212,23 +218,27 @@ func TestPlacement_JoinClusterOnNewDatabase(t *testing.T) {
 		DatabaseAdds: map[string]*schema.DatabaseAdd{
 			"foo": &schema.DatabaseAdd{
 				Database: &schema.Database{
-					Name:               "foo",
-					MaxRetentionInSecs: testRetentionInSecs,
-					NumShards:          testNumShards,
-					CreatedAt:          xtime.ToUnixMillis(ts.clock.Now()),
-					LastUpdatedAt:      xtime.ToUnixMillis(ts.clock.Now()),
-					Clusters:           make(map[string]*schema.Cluster),
-					ShardAssignments:   make(map[string]*schema.ClusterShardAssignment),
+					Properties: &schema.DatabaseProperties{
+						Name:               "foo",
+						MaxRetentionInSecs: testRetentionInSecs,
+						NumShards:          testNumShards,
+					},
+					CreatedAt:        xtime.ToUnixMillis(ts.clock.Now()),
+					LastUpdatedAt:    xtime.ToUnixMillis(ts.clock.Now()),
+					Clusters:         make(map[string]*schema.Cluster),
+					ShardAssignments: make(map[string]*schema.ClusterShardAssignment),
 				}}},
 		DatabaseChanges: map[string]*schema.DatabaseChanges{
 			"foo": &schema.DatabaseChanges{
 				Joins: map[string]*schema.ClusterJoin{
 					"bar": &schema.ClusterJoin{
 						Cluster: &schema.Cluster{
-							Name:      "bar",
-							Type:      "m3db",
+							Properties: &schema.ClusterProperties{
+								Name:   "bar",
+								Type:   "m3db",
+								Weight: 256,
+							},
 							Status:    schema.ClusterStatus_ACTIVE,
-							Weight:    256,
 							CreatedAt: xtime.ToUnixMillis(ts.clock.Now()),
 						},
 					},
@@ -246,7 +256,9 @@ func TestPlacement_JoinClusterOnExistingDatabase(t *testing.T) {
 	ts.forcePlacement(&schema.Placement{
 		Databases: map[string]*schema.Database{
 			"foo": &schema.Database{
-				Name: "foo",
+				Properties: &schema.DatabaseProperties{
+					Name: "foo",
+				},
 			},
 		},
 	})
@@ -267,10 +279,12 @@ func TestPlacement_JoinClusterOnExistingDatabase(t *testing.T) {
 				Joins: map[string]*schema.ClusterJoin{
 					"bar": &schema.ClusterJoin{
 						Cluster: &schema.Cluster{
-							Name:      "bar",
-							Type:      "m3db",
+							Properties: &schema.ClusterProperties{
+								Name:   "bar",
+								Type:   "m3db",
+								Weight: 256,
+							},
 							Status:    schema.ClusterStatus_ACTIVE,
-							Weight:    256,
 							CreatedAt: xtime.ToUnixMillis(ts.clock.Now()),
 						},
 					},
@@ -287,7 +301,9 @@ func TestPlacement_JoinClusterConflictsWithExisting(t *testing.T) {
 	ts.forcePlacement(&schema.Placement{
 		Databases: map[string]*schema.Database{
 			"foo": &schema.Database{
-				Name: "foo",
+				Properties: &schema.DatabaseProperties{
+					Name: "foo",
+				},
 				Clusters: map[string]*schema.Cluster{
 					"bar": &schema.Cluster{},
 				},
@@ -315,7 +331,9 @@ func TestPlacement_JoinClusterConflictsWithJoining(t *testing.T) {
 	ts.forcePlacement(&schema.Placement{
 		Databases: map[string]*schema.Database{
 			"foo": &schema.Database{
-				Name: "foo",
+				Properties: &schema.DatabaseProperties{
+					Name: "foo",
+				},
 			},
 		},
 	})
@@ -343,10 +361,12 @@ func TestPlacement_JoinClusterConflictsWithJoining(t *testing.T) {
 				Joins: map[string]*schema.ClusterJoin{
 					"bar": &schema.ClusterJoin{
 						Cluster: &schema.Cluster{
-							Name:      "bar",
-							Type:      "m3db",
+							Properties: &schema.ClusterProperties{
+								Name:   "bar",
+								Type:   "m3db",
+								Weight: 256,
+							},
 							Status:    schema.ClusterStatus_ACTIVE,
-							Weight:    256,
 							CreatedAt: xtime.ToUnixMillis(ts.clock.Now()),
 						},
 					},
@@ -376,10 +396,14 @@ func TestPlacement_DecommissionExistingCluster(t *testing.T) {
 	ts.forcePlacement(&schema.Placement{
 		Databases: map[string]*schema.Database{
 			"foo": &schema.Database{
-				Name: "foo",
+				Properties: &schema.DatabaseProperties{
+					Name: "foo",
+				},
 				Clusters: map[string]*schema.Cluster{
 					"bar": &schema.Cluster{
-						Name: "bar",
+						Properties: &schema.ClusterProperties{
+							Name: "bar",
+						},
 					},
 				},
 			},
@@ -412,7 +436,9 @@ func TestPlacement_DecomissionJoiningCluster(t *testing.T) {
 	ts.forcePlacement(&schema.Placement{
 		Databases: map[string]*schema.Database{
 			"foo": &schema.Database{
-				Name: "foo",
+				Properties: &schema.DatabaseProperties{
+					Name: "foo",
+				},
 			},
 		},
 	})
@@ -447,10 +473,14 @@ func TestPlacement_DoubleDecommision(t *testing.T) {
 	ts.forcePlacement(&schema.Placement{
 		Databases: map[string]*schema.Database{
 			"foo": &schema.Database{
-				Name: "foo",
+				Properties: &schema.DatabaseProperties{
+					Name: "foo",
+				},
 				Clusters: map[string]*schema.Cluster{
 					"bar": &schema.Cluster{
-						Name: "bar",
+						Properties: &schema.ClusterProperties{
+							Name: "bar",
+						},
 					},
 				},
 			},
@@ -487,7 +517,9 @@ func TestPlacement_DecomissionNonExistentCluster(t *testing.T) {
 	ts.forcePlacement(&schema.Placement{
 		Databases: map[string]*schema.Database{
 			"foo": &schema.Database{
-				Name: "foo",
+				Properties: &schema.DatabaseProperties{
+					Name: "foo",
+				},
 			},
 		},
 	})
@@ -533,14 +565,16 @@ func TestPlacement_CommitAddDatabase(t *testing.T) {
 	ts.requireEqualPlacements(&schema.Placement{
 		Databases: map[string]*schema.Database{
 			"foo": &schema.Database{
-				Name:               "foo",
-				MaxRetentionInSecs: testRetentionInSecs,
-				NumShards:          testNumShards,
-				CreatedAt:          xtime.ToUnixMillis(ts.clock.Now()),
-				LastUpdatedAt:      xtime.ToUnixMillis(ts.clock.Now()),
-				Clusters:           make(map[string]*schema.Cluster),
-				ShardAssignments:   make(map[string]*schema.ClusterShardAssignment),
-				Version:            1,
+				Properties: &schema.DatabaseProperties{
+					Name:               "foo",
+					MaxRetentionInSecs: testRetentionInSecs,
+					NumShards:          testNumShards,
+				},
+				CreatedAt:        xtime.ToUnixMillis(ts.clock.Now()),
+				LastUpdatedAt:    xtime.ToUnixMillis(ts.clock.Now()),
+				Clusters:         make(map[string]*schema.Cluster),
+				ShardAssignments: make(map[string]*schema.ClusterShardAssignment),
+				Version:          1,
 				MappingRules: []*schema.ClusterMappingRuleSet{
 					&schema.ClusterMappingRuleSet{
 						ForVersion: 1,
@@ -577,12 +611,14 @@ func TestPlacement_CommitMultipleOverlappingInitialDatabases(t *testing.T) {
 	ts.requireEqualPlacements(&schema.Placement{
 		Databases: map[string]*schema.Database{
 			"foo": &schema.Database{
-				Name:               "foo",
-				MaxRetentionInSecs: testRetentionInSecs,
-				NumShards:          testNumShards,
-				CreatedAt:          xtime.ToUnixMillis(ts.clock.Now()),
-				LastUpdatedAt:      xtime.ToUnixMillis(ts.clock.Now()),
-				Version:            1,
+				Properties: &schema.DatabaseProperties{
+					Name:               "foo",
+					MaxRetentionInSecs: testRetentionInSecs,
+					NumShards:          testNumShards,
+				},
+				CreatedAt:     xtime.ToUnixMillis(ts.clock.Now()),
+				LastUpdatedAt: xtime.ToUnixMillis(ts.clock.Now()),
+				Version:       1,
 				MappingRules: []*schema.ClusterMappingRuleSet{
 					&schema.ClusterMappingRuleSet{
 						ForVersion: 1,
@@ -590,12 +626,14 @@ func TestPlacement_CommitMultipleOverlappingInitialDatabases(t *testing.T) {
 				},
 			},
 			"foo-short": &schema.Database{
-				Name:               "foo-short",
-				MaxRetentionInSecs: testRetentionInSecs / 2,
-				NumShards:          testNumShards,
-				CreatedAt:          xtime.ToUnixMillis(ts.clock.Now()),
-				LastUpdatedAt:      xtime.ToUnixMillis(ts.clock.Now()),
-				Version:            1,
+				Properties: &schema.DatabaseProperties{
+					Name:               "foo-short",
+					MaxRetentionInSecs: testRetentionInSecs / 2,
+					NumShards:          testNumShards,
+				},
+				CreatedAt:     xtime.ToUnixMillis(ts.clock.Now()),
+				LastUpdatedAt: xtime.ToUnixMillis(ts.clock.Now()),
+				Version:       1,
 				MappingRules: []*schema.ClusterMappingRuleSet{
 					&schema.ClusterMappingRuleSet{
 						ForVersion: 1,
@@ -643,12 +681,14 @@ func TestPlacement_CommitDatabaseOverlapsWithExisting(t *testing.T) {
 	ts.requireEqualPlacements(&schema.Placement{
 		Databases: map[string]*schema.Database{
 			"foo": &schema.Database{
-				Name:               "foo",
-				MaxRetentionInSecs: testRetentionInSecs,
-				NumShards:          testNumShards,
-				CreatedAt:          xtime.ToUnixMillis(ts.clock.Now()),
-				LastUpdatedAt:      xtime.ToUnixMillis(ts.clock.Now()),
-				Version:            1,
+				Properties: &schema.DatabaseProperties{
+					Name:               "foo",
+					MaxRetentionInSecs: testRetentionInSecs,
+					NumShards:          testNumShards,
+				},
+				CreatedAt:     xtime.ToUnixMillis(ts.clock.Now()),
+				LastUpdatedAt: xtime.ToUnixMillis(ts.clock.Now()),
+				Version:       1,
 				MappingRules: []*schema.ClusterMappingRuleSet{
 					&schema.ClusterMappingRuleSet{
 						ForVersion: 1,
@@ -656,9 +696,11 @@ func TestPlacement_CommitDatabaseOverlapsWithExisting(t *testing.T) {
 				},
 			},
 			"foo-medium": &schema.Database{
-				Name:                "foo-medium",
-				MaxRetentionInSecs:  testRetentionInSecs - int32(100),
-				NumShards:           testNumShards,
+				Properties: &schema.DatabaseProperties{
+					Name:               "foo-medium",
+					MaxRetentionInSecs: testRetentionInSecs - int32(100),
+					NumShards:          testNumShards,
+				},
 				CreatedAt:           xtime.ToUnixMillis(ts.clock.Now()),
 				LastUpdatedAt:       xtime.ToUnixMillis(ts.clock.Now()),
 				ReadCutoverTime:     xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
@@ -672,12 +714,14 @@ func TestPlacement_CommitDatabaseOverlapsWithExisting(t *testing.T) {
 				},
 			},
 			"foo-short": &schema.Database{
-				Name:               "foo-short",
-				MaxRetentionInSecs: testRetentionInSecs / 2,
-				NumShards:          testNumShards,
-				CreatedAt:          xtime.ToUnixMillis(ts.clock.Now()),
-				LastUpdatedAt:      xtime.ToUnixMillis(ts.clock.Now()),
-				Version:            1,
+				Properties: &schema.DatabaseProperties{
+					Name:               "foo-short",
+					MaxRetentionInSecs: testRetentionInSecs / 2,
+					NumShards:          testNumShards,
+				},
+				CreatedAt:     xtime.ToUnixMillis(ts.clock.Now()),
+				LastUpdatedAt: xtime.ToUnixMillis(ts.clock.Now()),
+				Version:       1,
 				MappingRules: []*schema.ClusterMappingRuleSet{
 					&schema.ClusterMappingRuleSet{
 						ForVersion: 1,
@@ -685,9 +729,11 @@ func TestPlacement_CommitDatabaseOverlapsWithExisting(t *testing.T) {
 				},
 			},
 			"foo-tiny": &schema.Database{
-				Name:                "foo-tiny",
-				MaxRetentionInSecs:  testRetentionInSecs / 10,
-				NumShards:           testNumShards,
+				Properties: &schema.DatabaseProperties{
+					Name:               "foo-tiny",
+					MaxRetentionInSecs: testRetentionInSecs / 10,
+					NumShards:          testNumShards,
+				},
 				CreatedAt:           xtime.ToUnixMillis(ts.clock.Now()),
 				LastUpdatedAt:       xtime.ToUnixMillis(ts.clock.Now()),
 				ReadCutoverTime:     xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
@@ -737,11 +783,13 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 	ts.requireEqualPlacements(&schema.Placement{
 		Databases: map[string]*schema.Database{
 			"foo": &schema.Database{
-				Name:               "foo",
-				MaxRetentionInSecs: testRetentionInSecs,
-				NumShards:          testNumShards,
-				CreatedAt:          createTime,
-				LastUpdatedAt:      createTime,
+				Properties: &schema.DatabaseProperties{
+					Name:               "foo",
+					MaxRetentionInSecs: testRetentionInSecs,
+					NumShards:          testNumShards,
+				},
+				CreatedAt:     createTime,
+				LastUpdatedAt: createTime,
 				ShardAssignments: map[string]*schema.ClusterShardAssignment{
 					"bar": &schema.ClusterShardAssignment{
 						Shards: []uint32{0, 1},
@@ -753,16 +801,20 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 				Version: 1,
 				Clusters: map[string]*schema.Cluster{
 					"bar": &schema.Cluster{
-						Name:      "bar",
-						Weight:    uint32(testNumShards) / 2,
-						Type:      "m3db",
+						Properties: &schema.ClusterProperties{
+							Name:   "bar",
+							Weight: uint32(testNumShards) / 2,
+							Type:   "m3db",
+						},
 						Status:    schema.ClusterStatus_ACTIVE,
 						CreatedAt: createTime,
 					},
 					"zed": &schema.Cluster{
-						Name:      "zed",
-						Weight:    uint32(testNumShards) / 2,
-						Type:      "m3db",
+						Properties: &schema.ClusterProperties{
+							Name:   "zed",
+							Weight: uint32(testNumShards) / 2,
+							Type:   "m3db",
+						},
 						Status:    schema.ClusterStatus_ACTIVE,
 						CreatedAt: createTime,
 					},
@@ -830,11 +882,13 @@ func TestPlacement_CommitDecommissionCluster(t *testing.T) {
 
 	// Confirm the placement looks correct
 	db := &schema.Database{
-		Name:               "foo",
-		MaxRetentionInSecs: testRetentionInSecs,
-		NumShards:          testNumShards,
-		CreatedAt:          createTime,
-		LastUpdatedAt:      createTime,
+		Properties: &schema.DatabaseProperties{
+			Name:               "foo",
+			MaxRetentionInSecs: testRetentionInSecs,
+			NumShards:          testNumShards,
+		},
+		CreatedAt:     createTime,
+		LastUpdatedAt: createTime,
 		ShardAssignments: map[string]*schema.ClusterShardAssignment{
 			"c1": &schema.ClusterShardAssignment{
 				Shards: []uint32{0, 1},
@@ -846,16 +900,20 @@ func TestPlacement_CommitDecommissionCluster(t *testing.T) {
 		Version: 1,
 		Clusters: map[string]*schema.Cluster{
 			"c1": &schema.Cluster{
-				Name:      "c1",
-				Weight:    uint32(testNumShards) / 2,
-				Type:      "m3db",
+				Properties: &schema.ClusterProperties{
+					Name:   "c1",
+					Weight: uint32(testNumShards) / 2,
+					Type:   "m3db",
+				},
 				Status:    schema.ClusterStatus_ACTIVE,
 				CreatedAt: c1CreateTime,
 			},
 			"c2": &schema.Cluster{
-				Name:      "c2",
-				Weight:    uint32(testNumShards) / 2,
-				Type:      "m3db",
+				Properties: &schema.ClusterProperties{
+					Name:   "c2",
+					Weight: uint32(testNumShards) / 2,
+					Type:   "m3db",
+				},
 				Status:    schema.ClusterStatus_ACTIVE,
 				CreatedAt: c2CreateTime,
 			},
@@ -935,12 +993,14 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 
 	// Confirm the empty placement
 	db := &schema.Database{
-		Name:               "foo",
-		MaxRetentionInSecs: testRetentionInSecs,
-		NumShards:          testNumShards,
-		CreatedAt:          createTime,
-		LastUpdatedAt:      createTime,
-		Version:            1,
+		Properties: &schema.DatabaseProperties{
+			Name:               "foo",
+			MaxRetentionInSecs: testRetentionInSecs,
+			NumShards:          testNumShards,
+		},
+		CreatedAt:     createTime,
+		LastUpdatedAt: createTime,
+		Version:       1,
 		MappingRules: []*schema.ClusterMappingRuleSet{
 			&schema.ClusterMappingRuleSet{
 				ForVersion: 1,
@@ -971,10 +1031,12 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 	db.Version = 2
 	db.Clusters = map[string]*schema.Cluster{
 		"c1": &schema.Cluster{
-			Name:      "c1",
-			Type:      "m3db",
+			Properties: &schema.ClusterProperties{
+				Name:   "c1",
+				Type:   "m3db",
+				Weight: uint32(testNumShards / 2),
+			},
 			Status:    schema.ClusterStatus_ACTIVE,
-			Weight:    uint32(testNumShards / 2),
 			CreatedAt: c1CreateTime,
 		},
 	}
@@ -1011,10 +1073,12 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 	// Confirm the shards were properly redistributed
 	db.Version = 3
 	db.Clusters["c2"] = &schema.Cluster{
-		Name:      "c2",
-		Type:      "m3db",
+		Properties: &schema.ClusterProperties{
+			Name:   "c2",
+			Type:   "m3db",
+			Weight: uint32(testNumShards / 2),
+		},
 		Status:    schema.ClusterStatus_ACTIVE,
-		Weight:    uint32(testNumShards / 2),
 		CreatedAt: c2CreateTime,
 	}
 
@@ -1056,10 +1120,12 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 	// Confirm the shards were properly redistributed
 	db.Version = 4
 	db.Clusters["c3"] = &schema.Cluster{
-		Name:      "c3",
-		Type:      "m3db",
+		Properties: &schema.ClusterProperties{
+			Name:   "c3",
+			Type:   "m3db",
+			Weight: uint32(testNumShards / 2),
+		},
 		Status:    schema.ClusterStatus_ACTIVE,
-		Weight:    uint32(testNumShards / 2),
 		CreatedAt: c3CreateTime,
 	}
 
@@ -1125,11 +1191,13 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 
 	// Confirm the placement looks correct
 	db := &schema.Database{
-		Name:               "foo",
-		MaxRetentionInSecs: testRetentionInSecs,
-		NumShards:          testNumShards,
-		CreatedAt:          createTime,
-		LastUpdatedAt:      createTime,
+		Properties: &schema.DatabaseProperties{
+			Name:               "foo",
+			MaxRetentionInSecs: testRetentionInSecs,
+			NumShards:          testNumShards,
+		},
+		CreatedAt:     createTime,
+		LastUpdatedAt: createTime,
 		ShardAssignments: map[string]*schema.ClusterShardAssignment{
 			"c1": &schema.ClusterShardAssignment{
 				Shards: []uint32{0, 1},
@@ -1141,16 +1209,20 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 		Version: 1,
 		Clusters: map[string]*schema.Cluster{
 			"c1": &schema.Cluster{
-				Name:      "c1",
-				Weight:    uint32(testNumShards) / 2,
-				Type:      "m3db",
+				Properties: &schema.ClusterProperties{
+					Name:   "c1",
+					Weight: uint32(testNumShards) / 2,
+					Type:   "m3db",
+				},
 				Status:    schema.ClusterStatus_ACTIVE,
 				CreatedAt: c1CreateTime,
 			},
 			"c2": &schema.Cluster{
-				Name:      "c2",
-				Weight:    uint32(testNumShards) / 2,
-				Type:      "m3db",
+				Properties: &schema.ClusterProperties{
+					Name:   "c2",
+					Weight: uint32(testNumShards) / 2,
+					Type:   "m3db",
+				},
 				Status:    schema.ClusterStatus_ACTIVE,
 				CreatedAt: c2CreateTime,
 			},
@@ -1197,10 +1269,12 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 	// Should redistribute the load, leaving more shards on the oldest cluster
 	db.Version = 2
 	db.Clusters["c3"] = &schema.Cluster{
-		Name:      "c3",
+		Properties: &schema.ClusterProperties{
+			Name:   "c3",
+			Weight: uint32(testNumShards / 2),
+			Type:   "m3db",
+		},
 		CreatedAt: c3CreateTime,
-		Weight:    uint32(testNumShards / 2),
-		Type:      "m3db",
 		Status:    schema.ClusterStatus_ACTIVE,
 	}
 	db.ShardAssignments["c1"] = &schema.ClusterShardAssignment{Shards: []uint32{0, 1}}
@@ -1241,11 +1315,13 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 	// should redistribute traffic between the newly added and remaining clusters
 	db.Version = 3
 	db.Clusters["c4"] = &schema.Cluster{
-		Name:      "c4",
-		CreatedAt: c4CreateTime,
-		Weight:    uint32(testNumShards / 2),
-		Type:      "m3db",
+		Properties: &schema.ClusterProperties{
+			Name:   "c4",
+			Weight: uint32(testNumShards / 2),
+			Type:   "m3db",
+		},
 		Status:    schema.ClusterStatus_ACTIVE,
+		CreatedAt: c4CreateTime,
 	}
 	db.Clusters["c1"].Status = schema.ClusterStatus_DECOMMISSIONING
 	db.ShardAssignments["c1"] = &schema.ClusterShardAssignment{}
@@ -1361,8 +1437,10 @@ func (ts *testSuite) requireEqualPlacements(p1, p2 *schema.Placement) {
 
 func (ts *testSuite) requireEqualDatabases(dbname string, db1, db2 *schema.Database) {
 	t := ts.t
-	require.Equal(t, db1.Name, db2.Name, "Name for db %s", dbname)
-	require.Equal(t, db1.MaxRetentionInSecs, db2.MaxRetentionInSecs, "MaxRetentionInSecs[%s]", dbname)
+	require.Equal(t, db1.Properties.Name, db2.Properties.Name, "Name for db %s", dbname)
+	require.Equal(t, db1.Properties.MaxRetentionInSecs, db2.Properties.MaxRetentionInSecs,
+		"MaxRetentionInSecs[%s]", dbname)
+	require.Equal(t, db1.Properties.NumShards, db2.Properties.NumShards, "NumShards[%s]", dbname)
 	require.Equal(t, db1.CreatedAt, db2.CreatedAt, "CreatedAt[%s]", dbname)
 	require.Equal(t, db1.LastUpdatedAt, db2.LastUpdatedAt, "LastUpdatedAt[%s]", dbname)
 	require.Equal(t, db1.DecommissionedAt, db2.DecommissionedAt, "DecommissionedAt[%s]", dbname)
@@ -1415,10 +1493,10 @@ func (ts *testSuite) requireEqualDatabases(dbname string, db1, db2 *schema.Datab
 func (ts *testSuite) requireEqualClusters(dbname, cname string, c1, c2 *schema.Cluster) {
 	t := ts.t
 
-	require.Equal(t, c1.Name, c2.Name, "Name[%s:%s]", dbname, cname)
-	require.Equal(t, c1.Weight, c2.Weight, "Weight[%s:%s]", dbname, cname)
+	require.Equal(t, c1.Properties.Name, c2.Properties.Name, "Name[%s:%s]", dbname, cname)
+	require.Equal(t, c1.Properties.Weight, c2.Properties.Weight, "Weight[%s:%s]", dbname, cname)
+	require.Equal(t, c1.Properties.Type, c2.Properties.Type, "Type[%s:%s]", dbname, cname)
 	require.Equal(t, c1.Status, c2.Status, "Status[%s:%s]", dbname, cname)
-	require.Equal(t, c1.Type, c2.Type, "Type[%s:%s]", dbname, cname)
 	require.Equal(t, c1.CreatedAt, c2.CreatedAt, "CreatedAt[%s:%s]", dbname, cname)
 }
 

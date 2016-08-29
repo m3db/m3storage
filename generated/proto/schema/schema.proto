@@ -45,20 +45,17 @@ message DatabaseProperties {
 
 // Database defines a single database
 message Database {
-	string name = 1;
-	int32 num_shards = 2;
-	int32 max_retention_in_secs = 3;
-	int64 created_at = 4;
-	int64 last_updated_at = 5;
-	int64 decommissioned_at = 6;
-	int64 read_cutover_time = 7;
-	int64 write_cutover_time = 8;
-	int64 cutover_complete_time = 9;
-	map<string, Cluster> clusters = 10;
-	map<string, ClusterShardAssignment> shard_assignments = 11;
-	int64 generated_at = 12;
-	int32 version = 13;
-	repeated ClusterMappingRuleSet mapping_rules = 14;	
+	DatabaseProperties properties = 1;
+	int64 created_at = 2;
+	int64 last_updated_at = 3;
+	int64 decommissioned_at = 4;
+	int64 read_cutover_time = 5;
+	int64 write_cutover_time = 6;
+	int64 cutover_complete_time = 7;
+	map<string, Cluster> clusters = 8;
+	map<string, ClusterShardAssignment> shard_assignments = 9;
+	int32 version = 10;
+	repeated ClusterMappingRuleSet mapping_rules = 11;
 }
 
 // ClusterShardAssignment captures the shards currently assigned to a cluster
@@ -80,13 +77,11 @@ message ClusterProperties {
 	uint32 weight = 3;
 }
 
-// Cluster is the immutable metadata for a cluster
+// Cluster is the metadata for a cluster
 message Cluster {
-	string name = 1;
-	string type = 2;
-	uint32 weight = 3;
-	ClusterStatus status = 4;
-	int64 created_at = 5;
+	ClusterProperties properties = 1;
+	ClusterStatus status = 2;
+	int64 created_at = 3;
 }
 
 // DatabaseChanges capture pending changes to the database
@@ -126,6 +121,6 @@ message CutoffRule {
 // particular version
 message ClusterMappingRuleSet {
 	int32 for_version = 1;
-	repeated CutoverRule cutovers = 3;
-	repeated CutoffRule cutoffs = 4;
+	repeated CutoverRule cutovers = 2;
+	repeated CutoffRule cutoffs = 3;
 }
