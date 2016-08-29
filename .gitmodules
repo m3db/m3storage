@@ -1,15 +1,3 @@
-[submodule "vendor/github.com/m3db/m3x"]
-	path = vendor/github.com/m3db/m3x
-	url = https://github.com/m3db/m3x
-[submodule "vendor/github.com/golang/protobuf"]
-	path = vendor/github.com/golang/protobuf
-	url = https://github.com/golang/protobuf
-[submodule "vendor/github.com/golang/mock"]
-	path = vendor/github.com/golang/mock
-	url = https://github.com/golang/mock
-[submodule "vendor/github.com/stretchr/testify"]
-	path = vendor/github.com/stretchr/testify
-	url = https://github.com/stretchr/testify
-[submodule "vendor/github.com/facebookgo/clock"]
-	path = vendor/github.com/facebookgo/clock
-	url = https://github.com/facebookgo/clock
+[submodule "vendor/github.com/uber/uber-licence"]
+	path = vendor/github.com/uber/uber-licence
+	url = https://github.com/uber/uber-licence

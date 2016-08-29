@@ -19,6 +19,8 @@
 package storage
 
 import (
+	"time"
+
 	"github.com/golang/protobuf/proto"
 )
 
@@ -39,38 +41,48 @@ func NewVersionedConfig(version int, data []byte) VersionedConfig {
 	}
 }
 
-// A Backend defines a type of storage backend (m3db, hbase, etc)
-type Backend interface {
+// A Type defines a type of storage (m3db, hbase, etc)
+type Type interface {
 	// Name is the name of the storage class
 	Name() string
-	SetName(s string) Backend
+	SetName(s string) Type
+}
+
+// A Database holds datapoints up to a certain amount of time
+type Database interface {
+	Name() string
+	MaxRetention() time.Duration
 }
 
 // A Cluster defines a cluster
 type Cluster interface {
 	Name() string            // the name of the cluster
-	Backend() Backend        // the cluster's storage class
+	Type() Type              // the cluster's storage type
 	Config() VersionedConfig // the cluster's configuration
+	Database() string        // the database to which the cluster belongs
 }
 
-// NewCluster returns a new Cluster with the given name, storage class, and config
-func NewCluster(name string, backend Backend, config VersionedConfig) Cluster {
+// NewCluster returns a new Cluster with the given name, storage type, and config
+func NewCluster(name string, typ Type, db string, config VersionedConfig) Cluster {
 	return cluster{
-		name:    name,
-		backend: backend,
-		config:  config,
+		name:   name,
+		typ:    typ,
+		config: config,
+		db:     db,
 	}
 }
 
 type cluster struct {
-	name    string
-	backend Backend
-	config  VersionedConfig
+	name   string
+	typ    Type
+	config VersionedConfig
+	db     string
 }
 
 func (c cluster) Name() string            { return c.name }
-func (c cluster) Backend() Backend        { return c.backend }
+func (c cluster) Type() Type              { return c.typ }
 func (c cluster) Config() VersionedConfig { return c.config }
+func (c cluster) Database() string        { return c.db }
 
 type versionedConfig struct {
 	version int
