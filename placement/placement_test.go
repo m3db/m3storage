@@ -29,6 +29,7 @@ import (
 	"github.com/m3db/m3x/log"
 	"github.com/m3db/m3x/time"
 	"github.com/stretchr/testify/require"
+	"github.com/willf/bitset"
 )
 
 const (
@@ -96,7 +97,7 @@ func TestPlacement_AddDatabase(t *testing.T) {
 					CreatedAt:        xtime.ToUnixMillis(ts.clock.Now()),
 					LastUpdatedAt:    xtime.ToUnixMillis(ts.clock.Now()),
 					Clusters:         make(map[string]*schema.Cluster),
-					ShardAssignments: make(map[string]*schema.ClusterShardAssignment),
+					ShardAssignments: make(map[string]*schema.ShardSet),
 				}}},
 		DatabaseChanges: map[string]*schema.DatabaseChanges{
 			"foo": &schema.DatabaseChanges{}},
@@ -183,7 +184,7 @@ func TestPlacement_AddDatabaseNameConflictsWithNewlyAdded(t *testing.T) {
 					CreatedAt:        xtime.ToUnixMillis(ts.clock.Now()),
 					LastUpdatedAt:    xtime.ToUnixMillis(ts.clock.Now()),
 					Clusters:         make(map[string]*schema.Cluster),
-					ShardAssignments: make(map[string]*schema.ClusterShardAssignment),
+					ShardAssignments: make(map[string]*schema.ShardSet),
 				}}},
 		DatabaseChanges: map[string]*schema.DatabaseChanges{
 			"foo": &schema.DatabaseChanges{}},
@@ -219,7 +220,7 @@ func TestPlacement_AddDatabaseRetentionPeriodConflictsWithNewlyAdded(t *testing.
 					CreatedAt:        xtime.ToUnixMillis(ts.clock.Now()),
 					LastUpdatedAt:    xtime.ToUnixMillis(ts.clock.Now()),
 					Clusters:         make(map[string]*schema.Cluster),
-					ShardAssignments: make(map[string]*schema.ClusterShardAssignment),
+					ShardAssignments: make(map[string]*schema.ShardSet),
 				}}},
 		DatabaseChanges: map[string]*schema.DatabaseChanges{
 			"foo": &schema.DatabaseChanges{}},
@@ -293,7 +294,7 @@ func TestPlacement_JoinClusterOnNewDatabase(t *testing.T) {
 					CreatedAt:        xtime.ToUnixMillis(ts.clock.Now()),
 					LastUpdatedAt:    xtime.ToUnixMillis(ts.clock.Now()),
 					Clusters:         make(map[string]*schema.Cluster),
-					ShardAssignments: make(map[string]*schema.ClusterShardAssignment),
+					ShardAssignments: make(map[string]*schema.ShardSet),
 				}}},
 		DatabaseChanges: map[string]*schema.DatabaseChanges{
 			"foo": &schema.DatabaseChanges{
@@ -640,7 +641,7 @@ func TestPlacement_CommitAddDatabase(t *testing.T) {
 				CreatedAt:        xtime.ToUnixMillis(ts.clock.Now()),
 				LastUpdatedAt:    xtime.ToUnixMillis(ts.clock.Now()),
 				Clusters:         make(map[string]*schema.Cluster),
-				ShardAssignments: make(map[string]*schema.ClusterShardAssignment),
+				ShardAssignments: make(map[string]*schema.ShardSet),
 				Version:          1,
 				MappingRules: []*schema.ClusterMappingRuleSet{
 					&schema.ClusterMappingRuleSet{
@@ -857,13 +858,9 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 				},
 				CreatedAt:     createTime,
 				LastUpdatedAt: createTime,
-				ShardAssignments: map[string]*schema.ClusterShardAssignment{
-					"bar": &schema.ClusterShardAssignment{
-						Shards: []uint32{0, 1},
-					},
-					"zed": &schema.ClusterShardAssignment{
-						Shards: []uint32{2, 3},
-					},
+				ShardAssignments: map[string]*schema.ShardSet{
+					"bar": toShardSet(0, 1),
+					"zed": toShardSet(2, 3),
 				},
 				Version: 1,
 				Clusters: map[string]*schema.Cluster{
@@ -892,13 +889,13 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 						Cutovers: []*schema.CutoverRule{
 							&schema.CutoverRule{
 								ClusterName:      "bar",
-								Shards:           []uint32{0, 1},
+								Shards:           toShardSet(0, 1),
 								ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 								WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 							},
 							&schema.CutoverRule{
 								ClusterName:      "zed",
-								Shards:           []uint32{2, 3},
+								Shards:           toShardSet(2, 3),
 								ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 								WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 							},
@@ -956,13 +953,9 @@ func TestPlacement_CommitDecommissionCluster(t *testing.T) {
 		},
 		CreatedAt:     createTime,
 		LastUpdatedAt: createTime,
-		ShardAssignments: map[string]*schema.ClusterShardAssignment{
-			"c1": &schema.ClusterShardAssignment{
-				Shards: []uint32{0, 1},
-			},
-			"c2": &schema.ClusterShardAssignment{
-				Shards: []uint32{2, 3},
-			},
+		ShardAssignments: map[string]*schema.ShardSet{
+			"c1": toShardSet(0, 1),
+			"c2": toShardSet(2, 3),
 		},
 		Version: 1,
 		Clusters: map[string]*schema.Cluster{
@@ -991,13 +984,13 @@ func TestPlacement_CommitDecommissionCluster(t *testing.T) {
 				Cutovers: []*schema.CutoverRule{
 					&schema.CutoverRule{
 						ClusterName:      "c1",
-						Shards:           []uint32{0, 1},
+						Shards:           toShardSet(0, 1),
 						ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 						WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 					},
 					&schema.CutoverRule{
 						ClusterName:      "c2",
-						Shards:           []uint32{2, 3},
+						Shards:           toShardSet(2, 3),
 						ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 						WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 					},
@@ -1021,14 +1014,14 @@ func TestPlacement_CommitDecommissionCluster(t *testing.T) {
 	// should redistribute traffic to the remaining cluster
 	db.Version = 2
 	db.Clusters["c1"].Status = schema.ClusterStatus_DECOMMISSIONING
-	db.ShardAssignments["c1"].Shards = nil
-	db.ShardAssignments["c2"].Shards = []uint32{0, 1, 2, 3}
+	db.ShardAssignments["c1"].Bits = nil
+	db.ShardAssignments["c2"] = toShardSet(0, 1, 2, 3)
 	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
 		ForVersion: 2,
 		Cutovers: []*schema.CutoverRule{
 			&schema.CutoverRule{
 				ClusterName:      "c2",
-				Shards:           []uint32{0, 1},
+				Shards:           toShardSet(0, 1),
 				ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 				WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 			},
@@ -1036,7 +1029,7 @@ func TestPlacement_CommitDecommissionCluster(t *testing.T) {
 		Cutoffs: []*schema.CutoffRule{
 			&schema.CutoffRule{
 				ClusterName: "c1",
-				Shards:      []uint32{0, 1},
+				Shards:      toShardSet(0, 1),
 				CutoffTime:  xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
 			},
 		},
@@ -1108,10 +1101,8 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 		},
 	}
 
-	db.ShardAssignments = map[string]*schema.ClusterShardAssignment{
-		"c1": &schema.ClusterShardAssignment{
-			Shards: []uint32{0, 1, 2, 3},
-		},
+	db.ShardAssignments = map[string]*schema.ShardSet{
+		"c1": toShardSet(0, 1, 2, 3),
 	}
 
 	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
@@ -1119,7 +1110,7 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 		Cutovers: []*schema.CutoverRule{
 			&schema.CutoverRule{
 				ClusterName:      "c1",
-				Shards:           []uint32{0, 1, 2, 3},
+				Shards:           toShardSet(0, 1, 2, 3),
 				ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 				WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 			},
@@ -1149,15 +1140,15 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 		CreatedAt: c2CreateTime,
 	}
 
-	db.ShardAssignments["c1"] = &schema.ClusterShardAssignment{Shards: []uint32{2, 3}}
-	db.ShardAssignments["c2"] = &schema.ClusterShardAssignment{Shards: []uint32{0, 1}}
+	db.ShardAssignments["c1"] = toShardSet(2, 3)
+	db.ShardAssignments["c2"] = toShardSet(0, 1)
 
 	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
 		ForVersion: 3,
 		Cutovers: []*schema.CutoverRule{
 			&schema.CutoverRule{
 				ClusterName:      "c2",
-				Shards:           []uint32{0, 1},
+				Shards:           toShardSet(0, 1),
 				ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 				WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 			},
@@ -1165,7 +1156,7 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 		Cutoffs: []*schema.CutoffRule{
 			&schema.CutoffRule{
 				ClusterName: "c1",
-				Shards:      []uint32{0, 1},
+				Shards:      toShardSet(0, 1),
 				CutoffTime:  xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
 			},
 		},
@@ -1196,16 +1187,16 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 		CreatedAt: c3CreateTime,
 	}
 
-	db.ShardAssignments["c1"] = &schema.ClusterShardAssignment{Shards: []uint32{2, 3}}
-	db.ShardAssignments["c2"] = &schema.ClusterShardAssignment{Shards: []uint32{1}}
-	db.ShardAssignments["c3"] = &schema.ClusterShardAssignment{Shards: []uint32{0}}
+	db.ShardAssignments["c1"] = toShardSet(2, 3)
+	db.ShardAssignments["c2"] = toShardSet(1)
+	db.ShardAssignments["c3"] = toShardSet(0)
 
 	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
 		ForVersion: 4,
 		Cutovers: []*schema.CutoverRule{
 			&schema.CutoverRule{
 				ClusterName:      "c3",
-				Shards:           []uint32{0},
+				Shards:           toShardSet(0),
 				ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 				WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 			},
@@ -1213,7 +1204,7 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 		Cutoffs: []*schema.CutoffRule{
 			&schema.CutoffRule{
 				ClusterName: "c2",
-				Shards:      []uint32{0},
+				Shards:      toShardSet(0),
 				CutoffTime:  xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
 			},
 		},
@@ -1265,13 +1256,9 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 		},
 		CreatedAt:     createTime,
 		LastUpdatedAt: createTime,
-		ShardAssignments: map[string]*schema.ClusterShardAssignment{
-			"c1": &schema.ClusterShardAssignment{
-				Shards: []uint32{0, 1},
-			},
-			"c2": &schema.ClusterShardAssignment{
-				Shards: []uint32{2, 3},
-			},
+		ShardAssignments: map[string]*schema.ShardSet{
+			"c1": toShardSet(0, 1),
+			"c2": toShardSet(2, 3),
 		},
 		Version: 1,
 		Clusters: map[string]*schema.Cluster{
@@ -1300,13 +1287,13 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 				Cutovers: []*schema.CutoverRule{
 					&schema.CutoverRule{
 						ClusterName:      "c1",
-						Shards:           []uint32{0, 1},
+						Shards:           toShardSet(0, 1),
 						ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 						WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 					},
 					&schema.CutoverRule{
 						ClusterName:      "c2",
-						Shards:           []uint32{2, 3},
+						Shards:           toShardSet(2, 3),
 						ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 						WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 					},
@@ -1344,15 +1331,15 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 		CreatedAt: c3CreateTime,
 		Status:    schema.ClusterStatus_ACTIVE,
 	}
-	db.ShardAssignments["c1"] = &schema.ClusterShardAssignment{Shards: []uint32{0, 1}}
-	db.ShardAssignments["c2"] = &schema.ClusterShardAssignment{Shards: []uint32{3}}
-	db.ShardAssignments["c3"] = &schema.ClusterShardAssignment{Shards: []uint32{2}}
+	db.ShardAssignments["c1"] = toShardSet(0, 1)
+	db.ShardAssignments["c2"] = toShardSet(3)
+	db.ShardAssignments["c3"] = toShardSet(2)
 	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
 		ForVersion: 2,
 		Cutovers: []*schema.CutoverRule{
 			&schema.CutoverRule{
 				ClusterName:      "c3",
-				Shards:           []uint32{2},
+				Shards:           toShardSet(2),
 				ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 				WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 			},
@@ -1360,7 +1347,7 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 		Cutoffs: []*schema.CutoffRule{
 			&schema.CutoffRule{
 				ClusterName: "c2",
-				Shards:      []uint32{2},
+				Shards:      toShardSet(2),
 				CutoffTime:  xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
 			},
 		},
@@ -1391,23 +1378,23 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 		CreatedAt: c4CreateTime,
 	}
 	db.Clusters["c1"].Status = schema.ClusterStatus_DECOMMISSIONING
-	db.ShardAssignments["c1"] = &schema.ClusterShardAssignment{}
-	db.ShardAssignments["c2"] = &schema.ClusterShardAssignment{Shards: []uint32{0, 3}}
-	db.ShardAssignments["c4"] = &schema.ClusterShardAssignment{Shards: []uint32{1}}
+	db.ShardAssignments["c1"] = toShardSet()
+	db.ShardAssignments["c2"] = toShardSet(0, 3)
+	db.ShardAssignments["c4"] = toShardSet(1)
 
 	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
 		ForVersion: 3,
 		Cutovers: []*schema.CutoverRule{
 			&schema.CutoverRule{
 				ClusterName:      "c2",
-				Shards:           []uint32{0},
+				Shards:           toShardSet(0),
 				ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 				WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 			},
 
 			&schema.CutoverRule{
 				ClusterName:      "c4",
-				Shards:           []uint32{1},
+				Shards:           toShardSet(1),
 				ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 				WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 			},
@@ -1415,7 +1402,7 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 		Cutoffs: []*schema.CutoffRule{
 			&schema.CutoffRule{
 				ClusterName: "c1",
-				Shards:      []uint32{0, 1},
+				Shards:      toShardSet(0, 1),
 				CutoffTime:  xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
 			},
 		},
@@ -1526,7 +1513,7 @@ func (ts *testSuite) requireEqualDatabases(dbname string, db1, db2 *schema.Datab
 	for cname, a1 := range db1.ShardAssignments {
 		a2 := db2.ShardAssignments[cname]
 		require.NotNil(t, a2, "no ShardAssigment for %s in %s", cname, dbname)
-		require.Equal(t, a1.Shards, a2.Shards, "Shards[%s:%s]", dbname, cname)
+		require.Equal(t, a1.Bits, a2.Bits, "Bits[%s:%s]", dbname, cname)
 	}
 	require.Equal(t, len(db1.ShardAssignments), len(db2.ShardAssignments))
 
@@ -1543,7 +1530,7 @@ func (ts *testSuite) requireEqualDatabases(dbname string, db1, db2 *schema.Datab
 				"Cutovers[%s:%d:%d].ReadCutoverTime", dbname, i, n)
 			require.Equal(t, cut1.WriteCutoverTime, cut2.WriteCutoverTime,
 				"Cutovers[%s:%d:%d].WriteCutoverTime", dbname, i, n)
-			require.Equal(t, cut1.Shards, cut2.Shards, "Cutovers[%s:%d:%d].Shards", dbname, i, n)
+			require.Equal(t, cut1.Shards.Bits, cut2.Shards.Bits, "Cutovers[%s:%d:%d].Bits", dbname, i, n)
 		}
 
 		require.Equal(t, len(r1.Cutoffs), len(r2.Cutoffs), "Cutoffs[%s:%d]", dbname, i)
@@ -1552,7 +1539,7 @@ func (ts *testSuite) requireEqualDatabases(dbname string, db1, db2 *schema.Datab
 			require.Equal(t, cut1.ClusterName, cut2.ClusterName,
 				"Cutoffs[%s:%d:%d].ClusterName", dbname, i, n)
 			require.Equal(t, cut1.CutoffTime, cut2.CutoffTime, "Cutoffs[%s:%d:%d].CutoffTime", dbname, i, n)
-			require.Equal(t, cut1.Shards, cut2.Shards, "Cutoffs[%s:%d:%d].Shards", dbname, i, n)
+			require.Equal(t, cut1.Shards.Bits, cut2.Shards.Bits, "Cutoffs[%s:%d:%d].Bits", dbname, i, n)
 		}
 	}
 }
@@ -1598,5 +1585,16 @@ func (ts *testSuite) requireEqualDatabaseChanges(dbname string, c1, c2 *schema.D
 		d2 := c2.Decomms[cname]
 		require.NotNil(t, d2, "no decomm for %s in %s", cname, dbname)
 		require.Equal(t, d1.ClusterName, d2.ClusterName, "ClusterName[%s:%s]", dbname, cname)
+	}
+}
+
+func toShardSet(toSet ...uint) *schema.ShardSet {
+	var b bitset.BitSet
+	for _, n := range toSet {
+		b.Set(n)
+	}
+
+	return &schema.ShardSet{
+		Bits: b.Bytes(),
 	}
 }

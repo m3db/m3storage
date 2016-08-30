@@ -1,5 +1,5 @@
-hash: d33e0758827a64fc016979f7ef7f1644845b340676bcb73c25e3634e6fc90e81
-updated: 2016-08-29T15:57:42.805854016-04:00
+hash: 0e125e32405c080c7c9886e2332745644f904ad0ff1766c243abf40e38645c07
+updated: 2016-08-30T14:00:55.17483371-04:00
 imports:
 - name: github.com/facebookgo/clock
   version: 600d898af40aa09a7a93ecb9265d87b0504b6f03
@@ -29,4 +29,6 @@ imports:
   subpackages:
   - assert
   - require
+- name: github.com/willf/bitset
+  version: 1730870b454dde6756091d8c6a3d780ef123674c
 devImports: []
