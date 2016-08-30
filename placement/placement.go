@@ -31,6 +31,7 @@ import (
 	"github.com/m3db/m3storage/generated/proto/schema"
 	"github.com/m3db/m3x/log"
 	"github.com/m3db/m3x/time"
+	"github.com/willf/bitset"
 )
 
 var (
@@ -194,7 +195,7 @@ func (sp storagePlacement) AddDatabase(db schema.DatabaseProperties) error {
 				CreatedAt:        xtime.ToUnixMillis(now),
 				LastUpdatedAt:    xtime.ToUnixMillis(now),
 				Clusters:         make(map[string]*schema.Cluster),
-				ShardAssignments: make(map[string]*schema.ClusterShardAssignment),
+				ShardAssignments: make(map[string]*schema.ShardSet),
 			},
 		}
 
@@ -369,9 +370,9 @@ func (sp storagePlacement) commitDatabaseChanges(
 
 	sp.log.Infof("processing changes to database %s", db.Properties.Name)
 	var (
-		unowned       []uint32
-		shardCutoffs  = make(map[string][]uint32)
-		shardCutovers = make(map[string][]uint32)
+		unowned       bitset.BitSet
+		shardCutoffs  = make(map[string]*bitset.BitSet)
+		shardCutovers = make(map[string]*bitset.BitSet)
 	)
 
 	initialClusters := db.Clusters == nil
@@ -379,37 +380,37 @@ func (sp storagePlacement) commitDatabaseChanges(
 		db.Clusters = make(map[string]*schema.Cluster)
 
 		// Every shard is unowned
-		unowned = make([]uint32, 0, int(db.Properties.NumShards))
-		for n := uint32(0); n < uint32(db.Properties.NumShards); n++ {
-			unowned = append(unowned, n)
+		for n := uint(0); n < uint(db.Properties.NumShards); n++ {
+			unowned.Set(n)
 		}
 	}
 
 	if db.ShardAssignments == nil {
-		db.ShardAssignments = make(map[string]*schema.ClusterShardAssignment)
+		db.ShardAssignments = make(map[string]*schema.ShardSet)
 	}
 
 	// Add all joining cluster to the set of active clusters
 	for name, join := range changes.Joins {
 		sp.log.Infof("joining cluster %s:%s", db.Properties.Name, name)
 		db.Clusters[name] = join.Cluster
-		db.ShardAssignments[name] = &schema.ClusterShardAssignment{}
+		db.ShardAssignments[name] = &schema.ShardSet{}
 	}
 
-	// Go through all decomissioned clusters, remove them from the active
-	// clusters list, and add their shards to an "unowned" pool
+	// Mark	all decomissioned clusters as such, and return their shards to the
+	// unowned pool for redistribution
 	for name := range changes.Decomms {
 		sp.log.Infof("decommissioning cluster %s:%s", db.Properties.Name, name)
-		db.Clusters[name].Status = schema.ClusterStatus_DECOMMISSIONING
 
+		db.Clusters[name].Status = schema.ClusterStatus_DECOMMISSIONING
 		shards := db.ShardAssignments[name]
 		if shards == nil {
 			continue
 		}
 
-		unowned = append(unowned, shards.Shards...)
-		shardCutoffs[name] = append(shardCutoffs[name], shards.Shards...)
-		db.ShardAssignments[name].Shards = nil
+		assigned := bitset.From(shards.Bits)
+		shardCutoffs[name] = assigned
+		unowned.InPlaceUnion(assigned)
+		db.ShardAssignments[name].Bits = nil
 	}
 
 	// Compute active clusters, sorting the names so that assignments are deterministic (for testing)
@@ -432,49 +433,58 @@ func (sp storagePlacement) commitDatabaseChanges(
 	desiredNumShards := sp.computeDesiredNumShards(activeClusters, int(db.Properties.NumShards))
 	for _, name := range activeClusterNames {
 		var (
-			desired  = desiredNumShards[name]
-			assigned = db.ShardAssignments[name]
-			removed  []uint32
+			desired     = desiredNumShards[name]
+			assigned    = bitset.From(db.ShardAssignments[name].Bits)
+			numAssigned = int(assigned.Count())
 		)
 
-		if desired >= len(assigned.Shards) {
+		if desired >= numAssigned {
 			continue // Will acquire more shards in pass 2
 		}
 
-		numToRemove := len(assigned.Shards) - desired
+		numToRemove := numAssigned - desired
 		sp.log.Infof("%s:%s wants %d shards, has %d shards, returning %d",
-			db.Properties.Name, name, desired, len(assigned.Shards), numToRemove)
-		removed, assigned.Shards = assigned.Shards[:numToRemove], assigned.Shards[numToRemove:]
-		unowned = append(unowned, removed...)
-		shardCutoffs[name] = append(shardCutoffs[name], removed...)
-	}
+			db.Properties.Name, name, desired, numAssigned, numToRemove)
 
-	// Sort the unowned shards so that assignments are deterministic (for
-	// testing)
-	sort.Sort(shardsInOrder(unowned))
+		removed := bitset.New(uint(db.Properties.NumShards))
+		for i, e := assigned.NextSet(0); e && numToRemove > 0; i, e = assigned.NextSet(i + 1) {
+			sp.log.Infof("removing shard %d from %s:%s", i, db.Properties.Name, name)
+			removed.Set(i)
+			numToRemove--
+		}
+
+		unowned.InPlaceUnion(removed)
+		shardCutoffs[name] = removed
+		db.ShardAssignments[name].Bits = assigned.Difference(removed).Bytes()
+	}
 
 	// pass 2, assign shards from the "unowned" pool to underweight clusters
 	for _, name := range activeClusterNames {
 		var (
-			desired  = desiredNumShards[name]
-			assigned = db.ShardAssignments[name]
-			added    []uint32
+			desired     = desiredNumShards[name]
+			assigned    = bitset.From(db.ShardAssignments[name].Bits)
+			numAssigned = int(assigned.Count())
 		)
 
-		if desired <= len(assigned.Shards) {
+		if desired <= numAssigned {
 			continue // NB(mmihic): Should never be less at this point
 		}
 
 		// TODO(mmihic): Maybe validate that the numToAdd is >= the number remaining
-		numToAdd := desired - len(assigned.Shards)
+		numToAdd := desired - numAssigned
 		sp.log.Infof("%s:%s wants %d shards, has %d shards, pulling %d shards from %d unowned",
-			db.Properties.Name, name, desired, len(assigned.Shards), numToAdd, len(unowned))
-		added, unowned = unowned[:numToAdd], unowned[numToAdd:]
-		shardCutovers[name] = append(shardCutovers[name], added...)
-		assigned.Shards = append(assigned.Shards, added...)
+			db.Properties.Name, name, desired, numAssigned, numToAdd, unowned.Count())
 
-		// Sort the shards so if we unassign later, the results will be deterministic
-		sort.Sort(shardsInOrder(assigned.Shards))
+		added := bitset.New(uint(db.Properties.NumShards))
+		for i, e := unowned.NextSet(0); e && numToAdd > 0; i, e = unowned.NextSet(i + 1) {
+			sp.log.Infof("assigned shard %d to %s:%s", i, db.Properties.Name, name)
+			added.Set(i)
+			numToAdd--
+		}
+
+		unowned.InPlaceDifference(added)
+		db.ShardAssignments[name].Bits = assigned.Union(added).Bytes()
+		shardCutovers[name] = added
 	}
 
 	// now build out all of the rules
@@ -491,11 +501,11 @@ func (sp storagePlacement) commitDatabaseChanges(
 
 	for name, shards := range shardCutovers {
 		sp.log.Infof("shifting %d shards onto %s:%s at (reads starting @ %v, writes starting @ %v)",
-			len(shards), db.Properties.Name, name, readCutoverTime, writeCutoverTime)
+			shards.Count(), db.Properties.Name, name, readCutoverTime, writeCutoverTime)
 
 		rules.Cutovers = append(rules.Cutovers, &schema.CutoverRule{
 			ClusterName:      name,
-			Shards:           shards,
+			Shards:           &schema.ShardSet{Bits: shards.Bytes()},
 			ReadCutoverTime:  xtime.ToUnixMillis(readCutoverTime),
 			WriteCutoverTime: xtime.ToUnixMillis(writeCutoverTime),
 		})
@@ -503,11 +513,11 @@ func (sp storagePlacement) commitDatabaseChanges(
 
 	for name, shards := range shardCutoffs {
 		sp.log.Infof("shifting %d shards off %s:%s (reads stopping @ %v)",
-			len(shards), db.Properties.Name, name, cutoffTime)
+			shards.Count(), db.Properties.Name, name, cutoffTime)
 
 		rules.Cutoffs = append(rules.Cutoffs, &schema.CutoffRule{
 			ClusterName: name,
-			Shards:      shards,
+			Shards:      &schema.ShardSet{Bits: shards.Bytes()},
 			CutoffTime:  xtime.ToUnixMillis(cutoffTime),
 		})
 
