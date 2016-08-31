@@ -41,14 +41,14 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 	tests := []struct {
 		name     string
 		queries  []query
-		mappings fakeShardClusterMappings
+		mappings fakeClusterMappingProvider
 		expected []clusterQuery
 	}{
 		{name: " Mapping has no cutoff or cutover time",
 			queries: []query{
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d},
 			},
-			mappings: fakeShardClusterMappings{
+			mappings: fakeClusterMappingProvider{
 				time.Hour * 24: []ClusterMapping{
 					&clusterMapping{cluster: "foozle"},
 				},
@@ -61,7 +61,7 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 			queries: []query{
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d},
 			},
-			mappings: fakeShardClusterMappings{
+			mappings: fakeClusterMappingProvider{
 				time.Hour * 24: []ClusterMapping{
 					&clusterMapping{readCutoverTime: from.Add(-time.Millisecond * 5), cluster: "barzle"},
 					&clusterMapping{cutoffTime: from.Add(-time.Millisecond), cluster: "foozle"},
@@ -75,7 +75,7 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 			queries: []query{
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d},
 			},
-			mappings: fakeShardClusterMappings{
+			mappings: fakeClusterMappingProvider{
 				time.Hour * 24: []ClusterMapping{
 					&clusterMapping{readCutoverTime: from.Add(-time.Millisecond * 5), cluster: "barzle"},
 					&clusterMapping{cutoffTime: from.Add(time.Millisecond * 10), cluster: "foozle"},
@@ -90,7 +90,7 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 			queries: []query{
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d},
 			},
-			mappings: fakeShardClusterMappings{
+			mappings: fakeClusterMappingProvider{
 				time.Hour * 24: []ClusterMapping{
 					&clusterMapping{cutoffTime: until.Add(time.Millisecond * 10), cluster: "foozle"},
 				},
@@ -103,7 +103,7 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 			queries: []query{
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d},
 			},
-			mappings: fakeShardClusterMappings{
+			mappings: fakeClusterMappingProvider{
 				time.Hour * 24: []ClusterMapping{
 					&clusterMapping{readCutoverTime: until.Add(time.Millisecond * 5), cluster: "barzle"},
 				},
@@ -114,7 +114,7 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 			queries: []query{
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d},
 			},
-			mappings: fakeShardClusterMappings{
+			mappings: fakeClusterMappingProvider{
 				time.Hour * 24: []ClusterMapping{
 					&clusterMapping{readCutoverTime: from.Add(time.Millisecond * 20), cluster: "barzle"},
 				},
@@ -127,7 +127,7 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 			queries: []query{
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d},
 			},
-			mappings: fakeShardClusterMappings{
+			mappings: fakeClusterMappingProvider{
 				time.Hour * 24: []ClusterMapping{
 					&clusterMapping{readCutoverTime: from.Add(-time.Millisecond * 20), cluster: "barzle"},
 				},
@@ -141,7 +141,7 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 			queries: []query{
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d},
 			},
-			mappings: fakeShardClusterMappings{},
+			mappings: fakeClusterMappingProvider{},
 			expected: nil,
 		},
 
@@ -168,9 +168,9 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 	}
 }
 
-type fakeShardClusterMappings map[time.Duration][]ClusterMapping
+type fakeClusterMappingProvider map[time.Duration][]ClusterMapping
 
-func (scm fakeShardClusterMappings) MappingsFor(shard uint32, policy RetentionPolicy) ClusterMappingIter {
+func (scm fakeClusterMappingProvider) MappingsForShard(shard uint32, policy RetentionPolicy) ClusterMappingIter {
 	return &fakeClusterMappingIter{
 		mappings: scm[policy.RetentionPeriod().Duration()],
 		current:  0,
@@ -199,3 +199,13 @@ func (i *fakeClusterMappingIter) Current() ClusterMapping {
 
 	return nil
 }
+
+type clusterMapping struct {
+	readCutoverTime, writeCutoverTime, cutoffTime time.Time
+	cluster                                       string
+}
+
+func (m clusterMapping) ReadCutoverTime() time.Time  { return m.readCutoverTime }
+func (m clusterMapping) WriteCutoverTime() time.Time { return m.writeCutoverTime }
+func (m clusterMapping) CutoffTime() time.Time       { return m.cutoffTime }
+func (m clusterMapping) Cluster() string             { return m.cluster }
