@@ -24,13 +24,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/facebookgo/clock"
-	"github.com/golang/protobuf/proto"
 	"github.com/m3db/m3cluster/changeset"
 	"github.com/m3db/m3cluster/kv"
 	"github.com/m3db/m3storage/generated/proto/schema"
 	"github.com/m3db/m3x/log"
 	"github.com/m3db/m3x/time"
+
+	"github.com/facebookgo/clock"
+	"github.com/golang/protobuf/proto"
 	"github.com/willf/bitset"
 )
 
@@ -699,4 +700,16 @@ func (c cutoversByCluster) Len() int      { return len(c) }
 func (c cutoversByCluster) Swap(i, j int) { c[i], c[j] = c[j], c[i] }
 func (c cutoversByCluster) Less(i, j int) bool {
 	return strings.Compare(c[i].ClusterName, c[j].ClusterName) < 0
+}
+
+// NewShardSet returns a new shard set initialized with a list of shards
+func NewShardSet(toSet ...uint) *schema.ShardSet {
+	var b bitset.BitSet
+	for _, n := range toSet {
+		b.Set(n)
+	}
+
+	return &schema.ShardSet{
+		Bits: b.Bytes(),
+	}
 }
