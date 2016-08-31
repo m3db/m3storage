@@ -28,9 +28,8 @@ import (
 
 // A ClusterMappingProvider provides cluster mapping rules
 type ClusterMappingProvider interface {
-	// MappingsFor returns all of the currently active cluster mappings for the
-	// given shard and retention policy
-	MappingsForShard(shard uint32, policy RetentionPolicy) ClusterMappingIter
+	// QueryMappings returns the active cluster mappings for the given query
+	QueryMappings(shard uint32, start, end time.Time) ClusterMappingIter
 }
 
 // ClusterMappingIter is an iterator over ClusterMappings.  Allows provider to
@@ -88,7 +87,7 @@ func (p *clusterQueryPlanner) buildClusterQueryPlan(shard uint32, queries []quer
 	for _, q := range queries {
 		// Find the mappings for the query retention period
 		// TODO(mmihic): and resolution?
-		mappings := p.p.MappingsForShard(shard, q.RetentionPolicy)
+		mappings := p.p.QueryMappings(shard, q.Range.Start, q.Range.End)
 		if mappings == nil {
 			// No mappings for this retention policy, skip it
 			continue

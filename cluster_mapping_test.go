@@ -49,9 +49,7 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d},
 			},
 			mappings: fakeClusterMappingProvider{
-				time.Hour * 24: []ClusterMapping{
-					&clusterMapping{cluster: "foozle"},
-				},
+				&clusterMapping{cluster: "foozle"},
 			},
 			expected: []clusterQuery{
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d, cluster: "foozle"},
@@ -62,10 +60,8 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d},
 			},
 			mappings: fakeClusterMappingProvider{
-				time.Hour * 24: []ClusterMapping{
-					&clusterMapping{readCutoverTime: from.Add(-time.Millisecond * 5), cluster: "barzle"},
-					&clusterMapping{cutoffTime: from.Add(-time.Millisecond), cluster: "foozle"},
-				},
+				&clusterMapping{readCutoverTime: from.Add(-time.Millisecond * 5), cluster: "barzle"},
+				&clusterMapping{cutoffTime: from.Add(-time.Millisecond), cluster: "foozle"},
 			},
 			expected: []clusterQuery{
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d, cluster: "barzle"},
@@ -76,10 +72,8 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d},
 			},
 			mappings: fakeClusterMappingProvider{
-				time.Hour * 24: []ClusterMapping{
-					&clusterMapping{readCutoverTime: from.Add(-time.Millisecond * 5), cluster: "barzle"},
-					&clusterMapping{cutoffTime: from.Add(time.Millisecond * 10), cluster: "foozle"},
-				},
+				&clusterMapping{readCutoverTime: from.Add(-time.Millisecond * 5), cluster: "barzle"},
+				&clusterMapping{cutoffTime: from.Add(time.Millisecond * 10), cluster: "foozle"},
 			},
 			expected: []clusterQuery{
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d, cluster: "barzle"},
@@ -91,9 +85,7 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d},
 			},
 			mappings: fakeClusterMappingProvider{
-				time.Hour * 24: []ClusterMapping{
-					&clusterMapping{cutoffTime: until.Add(time.Millisecond * 10), cluster: "foozle"},
-				},
+				&clusterMapping{cutoffTime: until.Add(time.Millisecond * 10), cluster: "foozle"},
 			},
 			expected: []clusterQuery{
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d, cluster: "foozle"},
@@ -104,9 +96,7 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d},
 			},
 			mappings: fakeClusterMappingProvider{
-				time.Hour * 24: []ClusterMapping{
-					&clusterMapping{readCutoverTime: until.Add(time.Millisecond * 5), cluster: "barzle"},
-				},
+				&clusterMapping{readCutoverTime: until.Add(time.Millisecond * 5), cluster: "barzle"},
 			},
 			expected: []clusterQuery{},
 		},
@@ -115,9 +105,7 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d},
 			},
 			mappings: fakeClusterMappingProvider{
-				time.Hour * 24: []ClusterMapping{
-					&clusterMapping{readCutoverTime: from.Add(time.Millisecond * 20), cluster: "barzle"},
-				},
+				&clusterMapping{readCutoverTime: from.Add(time.Millisecond * 20), cluster: "barzle"},
 			},
 			expected: []clusterQuery{
 				{Range: xtime.Range{from.Add(time.Millisecond * 20), until}, RetentionPolicy: keep1d, cluster: "barzle"},
@@ -128,9 +116,7 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d},
 			},
 			mappings: fakeClusterMappingProvider{
-				time.Hour * 24: []ClusterMapping{
-					&clusterMapping{readCutoverTime: from.Add(-time.Millisecond * 20), cluster: "barzle"},
-				},
+				&clusterMapping{readCutoverTime: from.Add(-time.Millisecond * 20), cluster: "barzle"},
 			},
 			expected: []clusterQuery{
 				{Range: xtime.Range{from, until}, RetentionPolicy: keep1d, cluster: "barzle"},
@@ -168,11 +154,11 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 	}
 }
 
-type fakeClusterMappingProvider map[time.Duration][]ClusterMapping
+type fakeClusterMappingProvider []ClusterMapping
 
-func (scm fakeClusterMappingProvider) MappingsForShard(shard uint32, policy RetentionPolicy) ClusterMappingIter {
+func (scm fakeClusterMappingProvider) QueryMappings(shard uint32, start, end time.Time) ClusterMappingIter {
 	return &fakeClusterMappingIter{
-		mappings: scm[policy.RetentionPeriod().Duration()],
+		mappings: scm,
 		current:  0,
 		next:     0,
 	}
