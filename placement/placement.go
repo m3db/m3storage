@@ -449,14 +449,16 @@ func (sp storagePlacement) commitDatabaseChanges(
 
 		removed := bitset.New(uint(db.Properties.NumShards))
 		for i, e := assigned.NextSet(0); e && numToRemove > 0; i, e = assigned.NextSet(i + 1) {
-			sp.log.Infof("removing shard %d from %s:%s", i, db.Properties.Name, name)
 			removed.Set(i)
 			numToRemove--
 		}
 
+		assigned.InPlaceDifference(removed)
 		unowned.InPlaceUnion(removed)
 		shardCutoffs[name] = removed
-		db.ShardAssignments[name].Bits = assigned.Difference(removed).Bytes()
+		db.ShardAssignments[name].Bits = assigned.Bytes()
+
+		sp.log.Infof("%s:%s now owns %d shards", db.Properties.Name, name, assigned.Count())
 	}
 
 	// pass 2, assign shards from the "unowned" pool to underweight clusters
@@ -478,14 +480,16 @@ func (sp storagePlacement) commitDatabaseChanges(
 
 		added := bitset.New(uint(db.Properties.NumShards))
 		for i, e := unowned.NextSet(0); e && numToAdd > 0; i, e = unowned.NextSet(i + 1) {
-			sp.log.Infof("assigned shard %d to %s:%s", i, db.Properties.Name, name)
 			added.Set(i)
 			numToAdd--
 		}
 
+		assigned.InPlaceUnion(added)
 		unowned.InPlaceDifference(added)
-		db.ShardAssignments[name].Bits = assigned.Union(added).Bytes()
+		db.ShardAssignments[name].Bits = assigned.Bytes()
 		shardCutovers[name] = added
+
+		sp.log.Infof("%s:%s now owns %d shards", db.Properties.Name, name, assigned.Count())
 	}
 
 	// now build out all of the rules
