@@ -1474,6 +1474,10 @@ func (ts *placementTestSuite) forceChanges(newChanges *schema.PlacementChanges) 
 	}))
 }
 
+func (ts *placementTestSuite) commitLatest() {
+	require.NoError(ts.t, ts.sp.CommitChanges(ts.latestVersion(), testCommitOpts), "error committing")
+}
+
 func requireEqualPlacements(t *testing.T, p1, p2 *schema.Placement) {
 	if p1.Databases == nil {
 		require.Nil(t, p2.Databases, "expected nil Databases")
