@@ -151,7 +151,7 @@ func (mp *clusterMappingProvider) update(p *schema.Placement) {
 		byRetention = append(byRetention, dbm)
 	}
 
-	sort.Sort(databaseMappingsByRetentiondPeriod(byRetention))
+	sort.Sort(databaseMappingsByMaxRetention(byRetention))
 
 	// Swap out the pointers
 	mp.Lock()
@@ -350,11 +350,11 @@ func (m *clusterMapping) clone() *clusterMapping {
 }
 
 // sort.Interface for sorting databaseMappings by retention period
-type databaseMappingsByRetentiondPeriod []*databaseMappings
+type databaseMappingsByMaxRetention []*databaseMappings
 
-func (dbs databaseMappingsByRetentiondPeriod) Len() int      { return len(dbs) }
-func (dbs databaseMappingsByRetentiondPeriod) Swap(i, j int) { dbs[i], dbs[j] = dbs[j], dbs[i] }
-func (dbs databaseMappingsByRetentiondPeriod) Less(i, j int) bool {
+func (dbs databaseMappingsByMaxRetention) Len() int      { return len(dbs) }
+func (dbs databaseMappingsByMaxRetention) Swap(i, j int) { dbs[i], dbs[j] = dbs[j], dbs[i] }
+func (dbs databaseMappingsByMaxRetention) Less(i, j int) bool {
 	return dbs[i].maxRetentionInSecs < dbs[j].maxRetentionInSecs
 }
 
