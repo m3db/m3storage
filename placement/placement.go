@@ -48,6 +48,8 @@ var (
 	errClusterInvalidName                = errors.New("cluster name cannot be empty")
 	errClusterInvalidWeight              = errors.New("cluster weight cannot be <= 0")
 	errClusterInvalidType                = errors.New("cluster type cannot be empty")
+
+	errShardsAbandoned = errors.New("shards abandoned")
 )
 
 // CommitOptions are options for performing a commit
@@ -492,45 +494,72 @@ func (sp storagePlacement) commitDatabaseChanges(
 		sp.log.Infof("%s:%s now owns %d shards", db.Properties.Name, name, assigned.Count())
 	}
 
-	// now build out all of the rules
+	// now build out all of the rules.
 	db.Version++
 	rules := &schema.ClusterMappingRuleSet{
 		ForVersion: db.Version,
 	}
 
 	var (
-		readCutoverTime  = sp.clock.Now()
-		writeCutoverTime = readCutoverTime.Add(opts.GetRolloutDelay())
-		cutoffTime       = writeCutoverTime.Add(opts.GetTransitionDelay())
+		readCutoverTime     = sp.clock.Now()
+		writeCutoverTime    = readCutoverTime.Add(opts.GetRolloutDelay())
+		cutoverCompleteTime = writeCutoverTime.Add(opts.GetTransitionDelay())
 	)
 
-	for name, shards := range shardCutovers {
-		sp.log.Infof("shifting %d shards onto %s:%s at (reads starting @ %v, writes starting @ %v)",
-			shards.Count(), db.Properties.Name, name, readCutoverTime, writeCutoverTime)
+	// Compute transitions
+	for to, cutoverShards := range shardCutovers {
+		for from, cutoffShards := range shardCutoffs {
+			shards := cutoffShards.Intersection(cutoverShards)
+			if shards.None() {
+				continue
+			}
 
-		rules.Cutovers = append(rules.Cutovers, &schema.CutoverRule{
-			ClusterName:      name,
-			Shards:           &schema.ShardSet{Bits: shards.Bytes()},
-			ReadCutoverTime:  xtime.ToUnixMillis(readCutoverTime),
-			WriteCutoverTime: xtime.ToUnixMillis(writeCutoverTime),
-		})
+			sp.log.Infof("shifting %d shards from %s:%s to %s:%s (reads starting @ %v, writes starting @ %v)",
+				shards.Count(), db.Properties.Name, from, db.Properties.Name, to, readCutoverTime, writeCutoverTime)
+
+			rules.ShardTransitions = append(rules.ShardTransitions, &schema.ShardTransitionRule{
+				FromCluster:         from,
+				ToCluster:           to,
+				Shards:              &schema.ShardSet{Bits: shards.Bytes()},
+				ReadCutoverTime:     xtime.ToUnixMillis(readCutoverTime),
+				WriteCutoverTime:    xtime.ToUnixMillis(writeCutoverTime),
+				CutoverCompleteTime: xtime.ToUnixMillis(cutoverCompleteTime),
+			})
+
+			cutoverShards.InPlaceDifference(shards)
+			cutoffShards.InPlaceDifference(shards)
+
+			if cutoverShards.None() {
+				// All transitions out of this shard have been processed
+				break
+			}
+		}
+
+		// If there are shards still outstanding, create an initial rule
+		if cutoverShards.Any() {
+			sp.log.Infof("assigning %d initial shards to %s:%s (reads starting @ %v, writes starting @ %v)",
+				cutoverShards.Count(), db.Properties.Name, to, readCutoverTime, writeCutoverTime)
+
+			rules.ShardTransitions = append(rules.ShardTransitions, &schema.ShardTransitionRule{
+				ToCluster:        to,
+				Shards:           &schema.ShardSet{Bits: cutoverShards.Bytes()},
+				ReadCutoverTime:  xtime.ToUnixMillis(readCutoverTime),
+				WriteCutoverTime: xtime.ToUnixMillis(writeCutoverTime),
+			})
+		}
 	}
 
-	for name, shards := range shardCutoffs {
-		sp.log.Infof("shifting %d shards off %s:%s (reads stopping @ %v)",
-			shards.Count(), db.Properties.Name, name, cutoffTime)
-
-		rules.Cutoffs = append(rules.Cutoffs, &schema.CutoffRule{
-			ClusterName: name,
-			Shards:      &schema.ShardSet{Bits: shards.Bytes()},
-			CutoffTime:  xtime.ToUnixMillis(cutoffTime),
-		})
-
+	// We've processed all transitions, so make sure there are no shards with no place to go...
+	for cutoffName, cutoffShards := range shardCutoffs {
+		if cutoffShards.Any() {
+			sp.log.Infof("%d shards moved off %s:%s with no place to go",
+				cutoffShards.Count(), db.Properties.Name, cutoffName)
+			return errShardsAbandoned
+		}
 	}
 
-	// Sort rules by cluster name so that they have a deterministic ordering...
-	sort.Sort(cutoffsByCluster(rules.Cutoffs))
-	sort.Sort(cutoversByCluster(rules.Cutovers))
+	// ...sort the transitions so they have a deterministic ordering...
+	sort.Sort(shardTransitionsByCluster(rules.ShardTransitions))
 
 	// ...and add to the list of mappings for the database
 	db.MappingRules = append(db.MappingRules, rules)
@@ -688,22 +717,22 @@ func (dbs databasesByRetention) Less(i, j int) bool {
 	return dbs[i].Properties.MaxRetentionInSecs < dbs[j].Properties.MaxRetentionInSecs
 }
 
-// sort.Interface for CutoffRule by cluster name
-type cutoffsByCluster []*schema.CutoffRule
+// sort.Interface for ShardTransitionRule by to cluster name
+type shardTransitionsByCluster []*schema.ShardTransitionRule
 
-func (c cutoffsByCluster) Len() int      { return len(c) }
-func (c cutoffsByCluster) Swap(i, j int) { c[i], c[j] = c[j], c[i] }
-func (c cutoffsByCluster) Less(i, j int) bool {
-	return strings.Compare(c[i].ClusterName, c[j].ClusterName) < 0
-}
+func (c shardTransitionsByCluster) Len() int      { return len(c) }
+func (c shardTransitionsByCluster) Swap(i, j int) { c[i], c[j] = c[j], c[i] }
+func (c shardTransitionsByCluster) Less(i, j int) bool {
+	toOrder := strings.Compare(c[i].ToCluster, c[j].ToCluster)
+	if toOrder < 0 {
+		return true
+	}
 
-// sort.Interface for CutoverRule by cluster name
-type cutoversByCluster []*schema.CutoverRule
+	if toOrder > 0 {
+		return false
+	}
 
-func (c cutoversByCluster) Len() int      { return len(c) }
-func (c cutoversByCluster) Swap(i, j int) { c[i], c[j] = c[j], c[i] }
-func (c cutoversByCluster) Less(i, j int) bool {
-	return strings.Compare(c[i].ClusterName, c[j].ClusterName) < 0
+	return strings.Compare(c[i].FromCluster, c[j].FromCluster) < 0
 }
 
 // NewShardSet returns a new shard set initialized with a list of shards

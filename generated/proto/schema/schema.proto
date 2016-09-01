@@ -100,27 +100,19 @@ message ClusterDecommission {
 	string cluster_name = 1;
 }
 
-
-// CutoverRule is a rule transition shards onto a given cluster
-message CutoverRule {
-	string cluster_name = 1;
-	ShardSet shards = 2;
-	int64 read_cutover_time = 3;
-	int64 write_cutover_time = 4;
-}
-
-// CutoffRule is a rule tranistioning shards off a given
-// cluster
-message CutoffRule {
-	string cluster_name = 1;
-	ShardSet shards = 2;
-	int64 cutoff_time = 3;
+// ShardTransitionRule transitions shards from one cluster to another
+message ShardTransitionRule {
+	string from_cluster = 1;
+	string to_cluster = 2;
+	ShardSet shards = 3;
+	int64 read_cutover_time = 4;
+	int64 write_cutover_time = 5;
+	int64 cutover_complete_time = 6;
 }
 
 // ClusterMappingRuleSet is a set of cluster mapping rules built off a
 // particular version
 message ClusterMappingRuleSet {
 	int32 for_version = 1;
-	repeated CutoverRule cutovers = 2;
-	repeated CutoffRule cutoffs = 3;
+	repeated ShardTransitionRule shard_transitions = 2;
 }

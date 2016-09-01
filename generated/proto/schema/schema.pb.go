@@ -20,8 +20,7 @@ It has these top-level messages:
 	DatabaseChanges
 	ClusterJoin
 	ClusterDecommission
-	CutoverRule
-	CutoffRule
+	ShardTransitionRule
 	ClusterMappingRuleSet
 */
 package schema
@@ -256,38 +255,21 @@ func (m *ClusterDecommission) Reset()         { *m = ClusterDecommission{} }
 func (m *ClusterDecommission) String() string { return proto.CompactTextString(m) }
 func (*ClusterDecommission) ProtoMessage()    {}
 
-// CutoverRule is a rule transition shards onto a given cluster
-type CutoverRule struct {
-	ClusterName      string    `protobuf:"bytes,1,opt,name=cluster_name" json:"cluster_name,omitempty"`
-	Shards           *ShardSet `protobuf:"bytes,2,opt,name=shards" json:"shards,omitempty"`
-	ReadCutoverTime  int64     `protobuf:"varint,3,opt,name=read_cutover_time" json:"read_cutover_time,omitempty"`
-	WriteCutoverTime int64     `protobuf:"varint,4,opt,name=write_cutover_time" json:"write_cutover_time,omitempty"`
+// ShardTransitionRule transitions shards from one cluster to another
+type ShardTransitionRule struct {
+	FromCluster         string    `protobuf:"bytes,1,opt,name=from_cluster" json:"from_cluster,omitempty"`
+	ToCluster           string    `protobuf:"bytes,2,opt,name=to_cluster" json:"to_cluster,omitempty"`
+	Shards              *ShardSet `protobuf:"bytes,3,opt,name=shards" json:"shards,omitempty"`
+	ReadCutoverTime     int64     `protobuf:"varint,4,opt,name=read_cutover_time" json:"read_cutover_time,omitempty"`
+	WriteCutoverTime    int64     `protobuf:"varint,5,opt,name=write_cutover_time" json:"write_cutover_time,omitempty"`
+	CutoverCompleteTime int64     `protobuf:"varint,6,opt,name=cutover_complete_time" json:"cutover_complete_time,omitempty"`
 }
 
-func (m *CutoverRule) Reset()         { *m = CutoverRule{} }
-func (m *CutoverRule) String() string { return proto.CompactTextString(m) }
-func (*CutoverRule) ProtoMessage()    {}
+func (m *ShardTransitionRule) Reset()         { *m = ShardTransitionRule{} }
+func (m *ShardTransitionRule) String() string { return proto.CompactTextString(m) }
+func (*ShardTransitionRule) ProtoMessage()    {}
 
-func (m *CutoverRule) GetShards() *ShardSet {
-	if m != nil {
-		return m.Shards
-	}
-	return nil
-}
-
-// CutoffRule is a rule tranistioning shards off a given
-// cluster
-type CutoffRule struct {
-	ClusterName string    `protobuf:"bytes,1,opt,name=cluster_name" json:"cluster_name,omitempty"`
-	Shards      *ShardSet `protobuf:"bytes,2,opt,name=shards" json:"shards,omitempty"`
-	CutoffTime  int64     `protobuf:"varint,3,opt,name=cutoff_time" json:"cutoff_time,omitempty"`
-}
-
-func (m *CutoffRule) Reset()         { *m = CutoffRule{} }
-func (m *CutoffRule) String() string { return proto.CompactTextString(m) }
-func (*CutoffRule) ProtoMessage()    {}
-
-func (m *CutoffRule) GetShards() *ShardSet {
+func (m *ShardTransitionRule) GetShards() *ShardSet {
 	if m != nil {
 		return m.Shards
 	}
@@ -297,25 +279,17 @@ func (m *CutoffRule) GetShards() *ShardSet {
 // ClusterMappingRuleSet is a set of cluster mapping rules built off a
 // particular version
 type ClusterMappingRuleSet struct {
-	ForVersion int32          `protobuf:"varint,1,opt,name=for_version" json:"for_version,omitempty"`
-	Cutovers   []*CutoverRule `protobuf:"bytes,2,rep,name=cutovers" json:"cutovers,omitempty"`
-	Cutoffs    []*CutoffRule  `protobuf:"bytes,3,rep,name=cutoffs" json:"cutoffs,omitempty"`
+	ForVersion       int32                  `protobuf:"varint,1,opt,name=for_version" json:"for_version,omitempty"`
+	ShardTransitions []*ShardTransitionRule `protobuf:"bytes,2,rep,name=shard_transitions" json:"shard_transitions,omitempty"`
 }
 
 func (m *ClusterMappingRuleSet) Reset()         { *m = ClusterMappingRuleSet{} }
 func (m *ClusterMappingRuleSet) String() string { return proto.CompactTextString(m) }
 func (*ClusterMappingRuleSet) ProtoMessage()    {}
 
-func (m *ClusterMappingRuleSet) GetCutovers() []*CutoverRule {
+func (m *ClusterMappingRuleSet) GetShardTransitions() []*ShardTransitionRule {
 	if m != nil {
-		return m.Cutovers
-	}
-	return nil
-}
-
-func (m *ClusterMappingRuleSet) GetCutoffs() []*CutoffRule {
-	if m != nil {
-		return m.Cutoffs
+		return m.ShardTransitions
 	}
 	return nil
 }

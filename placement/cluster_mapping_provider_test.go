@@ -40,17 +40,12 @@ func TestQueryMappings(t *testing.T) {
 		writeCutoverDelay = readCutoverDelay + testRolloutDelay
 		cutoffDelay       = writeCutoverDelay + testTransitionDelay
 
-		ts     = newPlacementTestSuite(t)
-		p, err = NewClusterMappingProvider(NewClusterMappingProviderOptions().
-			Clock(ts.clock).
-			Logger(xlog.SimpleLogger))
+		ts   = newPlacementTestSuite(t)
+		prov = newTestClusterMappingProvider(ts)
 
 		now    = ts.clock.Now()
 		notSet = time.Time{}
 	)
-
-	require.NoError(t, err)
-	prov := p.(*clusterMappingProvider)
 
 	type query struct {
 		shard     uint32
@@ -252,19 +247,22 @@ func Benchmark32ClusterSplits(b *testing.B) {
 }
 
 func Benchmark64ClusterSplits(b *testing.B) {
-	benchmarkNClusterSplits(b, 64, 70)
+	benchmarkNClusterSplits(b, 64, 60)
 }
 
 func Benchmark128ClusterSplits(b *testing.B) {
-	benchmarkNClusterSplits(b, 64, 70)
+	benchmarkNClusterSplits(b, 128, 103)
 }
 
 func Benchmark256ClusterSplits(b *testing.B) {
-	benchmarkNClusterSplits(b, 256, 176)
+	benchmarkNClusterSplits(b, 256, 135)
 }
 
 func benchmarkNClusterSplits(b *testing.B, numSplits, expectedLoMappings int) {
-	ts := newPlacementTestSuiteWithLogger(b, xlog.NullLogger)
+	var (
+		ts   = newPlacementTestSuiteWithLogger(b, xlog.NullLogger)
+		prov = newTestClusterMappingProvider(ts)
+	)
 
 	// Create a database, then join clusters to it repeatedly, splitting each time
 	require.NoError(b, ts.sp.AddDatabase(schema.DatabaseProperties{
@@ -285,21 +283,18 @@ func benchmarkNClusterSplits(b *testing.B, numSplits, expectedLoMappings int) {
 		ts.commitLatest()
 	}
 
-	// Prepare a new provider
-	p, err := NewClusterMappingProvider(NewClusterMappingProviderOptions().
-		Clock(ts.clock).
-		Logger(xlog.NullLogger))
-
-	require.NoError(b, err)
-	prov := p.(*clusterMappingProvider)
+	// update the mappings
 	prov.update(ts.latestPlacement())
 
+	// confirm we have the right number of mappings with the right values...
 	start, end := ts.clock.Now().Add(-time.Hour*24), ts.clock.Now()
+	loMappings := collectMappings(prov.QueryMappings(0, start, end))
+	require.Equal(b, expectedLoMappings, len(loMappings))
 
+	// ...and run the benchmark
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		loMappings := collectMappings(prov.QueryMappings(0, start, end))
-		require.Equal(b, expectedLoMappings, len(loMappings))
+		collectMappings(prov.QueryMappings(0, start, end))
 	}
 }
 
@@ -310,6 +305,16 @@ func collectMappings(iter storage.ClusterMappingIter) []storage.ClusterMapping {
 	}
 
 	return results
+}
+
+func newTestClusterMappingProvider(ts *placementTestSuite) *clusterMappingProvider {
+	p, err := NewClusterMappingProvider(NewClusterMappingProviderOptions().
+		Clock(ts.clock).
+		Logger(xlog.NullLogger))
+
+	require.NoError(ts.t, err)
+	prov := p.(*clusterMappingProvider)
+	return prov
 }
 
 type queryResult struct {
