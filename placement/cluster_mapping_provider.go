@@ -172,12 +172,7 @@ func (mp *clusterMappingProvider) update(p *schema.Placement) error {
 	return nil
 }
 
-// databaseMappings are the mappings for a given database.  databaseMappings is
-// optimized for space efficiency assuming a reasonable level of density in
-// shards to clusters, and a limited number of mapping rules.  If the number of
-// mapping rules grows beyond 32 we might want to change the data structure to
-// something threaded so that a given shard only needs to iterate through the
-// mappings that it once belonged to.
+// databaseMappings are the mappings for a given database.
 type databaseMappings struct {
 	name               string
 	version            int32
