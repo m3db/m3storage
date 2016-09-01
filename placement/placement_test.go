@@ -1413,17 +1413,21 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 type placementTestSuite struct {
 	kv    kv.Store
 	sp    StoragePlacement
-	t     *testing.T
+	t     require.TestingT
 	clock *clock.Mock
 }
 
-func newPlacementTestSuite(t *testing.T) *placementTestSuite {
+func newPlacementTestSuite(t require.TestingT) *placementTestSuite {
+	return newPlacementTestSuiteWithLogger(t, xlog.SimpleLogger)
+}
+
+func newPlacementTestSuiteWithLogger(t require.TestingT, logger xlog.Logger) *placementTestSuite {
 	kv := kv.NewFakeStore()
 	clock := clock.NewMock()
 
 	sp, err := NewStoragePlacement(kv, "p", NewStoragePlacementOptions().
 		Clock(clock).
-		Logger(xlog.SimpleLogger))
+		Logger(xlog.NullLogger))
 	require.NoError(t, err)
 
 	return &placementTestSuite{

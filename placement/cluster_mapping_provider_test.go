@@ -232,20 +232,75 @@ func TestQueryMappings(t *testing.T) {
 				requireEqualClusterMappings(t, r1, r2, fmt.Sprintf("bad result %d for %s query %d", i, test.scenario, n))
 			}
 		}
-
 	}
 }
 
 func Benchmark1Cluster(b *testing.B) {
+	benchmarkNClusterSplits(b, 1, 1)
 }
 
 func Benchmark2ClusterSplits(b *testing.B) {
+	benchmarkNClusterSplits(b, 2, 2)
 }
 
 func Benchmark8ClusterSplits(b *testing.B) {
+	benchmarkNClusterSplits(b, 8, 8)
 }
 
 func Benchmark32ClusterSplits(b *testing.B) {
+	benchmarkNClusterSplits(b, 32, 33)
+}
+
+func Benchmark64ClusterSplits(b *testing.B) {
+	benchmarkNClusterSplits(b, 64, 70)
+}
+
+func Benchmark128ClusterSplits(b *testing.B) {
+	benchmarkNClusterSplits(b, 64, 70)
+}
+
+func Benchmark256ClusterSplits(b *testing.B) {
+	benchmarkNClusterSplits(b, 256, 176)
+}
+
+func benchmarkNClusterSplits(b *testing.B, numSplits, expectedLoMappings int) {
+	ts := newPlacementTestSuiteWithLogger(b, xlog.NullLogger)
+
+	// Create a database, then join clusters to it repeatedly, splitting each time
+	require.NoError(b, ts.sp.AddDatabase(schema.DatabaseProperties{
+		Name:               "db1",
+		NumShards:          testShards,
+		MaxRetentionInSecs: int32(time.Hour * 24 * 30 / time.Second),
+	}))
+	ts.commitLatest()
+
+	for i := 0; i < numSplits; i++ {
+		ts.clock.Add(time.Hour)
+		require.NoError(b, ts.sp.JoinCluster("db1", schema.ClusterProperties{
+			Name:   fmt.Sprintf("c%d", i),
+			Weight: uint32(testShards),
+			Type:   "m3db",
+		}))
+
+		ts.commitLatest()
+	}
+
+	// Prepare a new provider
+	p, err := NewClusterMappingProvider(NewClusterMappingProviderOptions().
+		Clock(ts.clock).
+		Logger(xlog.NullLogger))
+
+	require.NoError(b, err)
+	prov := p.(*clusterMappingProvider)
+	prov.update(ts.latestPlacement())
+
+	start, end := ts.clock.Now().Add(-time.Hour*24), ts.clock.Now()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		loMappings := collectMappings(prov.QueryMappings(0, start, end))
+		require.Equal(b, expectedLoMappings, len(loMappings))
+	}
 }
 
 func collectMappings(iter storage.ClusterMappingIter) []storage.ClusterMapping {
