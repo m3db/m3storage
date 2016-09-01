@@ -243,7 +243,7 @@ func Benchmark8ClusterSplits(b *testing.B) {
 }
 
 func Benchmark32ClusterSplits(b *testing.B) {
-	benchmarkNClusterSplits(b, 32, 33)
+	benchmarkNClusterSplits(b, 32, 32)
 }
 
 func Benchmark64ClusterSplits(b *testing.B) {
