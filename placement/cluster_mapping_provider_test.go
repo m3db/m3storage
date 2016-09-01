@@ -47,6 +47,8 @@ func TestQueryMappings(t *testing.T) {
 		notSet = time.Time{}
 	)
 
+	defer prov.Close()
+
 	type query struct {
 		shard     uint32
 		retention time.Duration
@@ -264,6 +266,8 @@ func benchmarkNClusterSplits(b *testing.B, numSplits, expectedLoMappings int) {
 		prov = newTestClusterMappingProvider(ts)
 	)
 
+	defer prov.Close()
+
 	// Create a database, then join clusters to it repeatedly, splitting each time
 	require.NoError(b, ts.sp.AddDatabase(schema.DatabaseProperties{
 		Name:               "db1",
@@ -308,7 +312,7 @@ func collectMappings(iter storage.ClusterMappingIter) []storage.ClusterMapping {
 }
 
 func newTestClusterMappingProvider(ts *placementTestSuite) *clusterMappingProvider {
-	p, err := NewClusterMappingProvider(NewClusterMappingProviderOptions().
+	p, err := NewClusterMappingProvider("p", ts.kv, NewClusterMappingProviderOptions().
 		Clock(ts.clock).
 		Logger(xlog.NullLogger))
 

@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/m3db/m3cluster/kv"
 	"github.com/m3db/m3storage"
 	"github.com/m3db/m3storage/generated/proto/schema"
 	"github.com/m3db/m3x/log"
@@ -60,14 +61,19 @@ type clusterMappingProvider struct {
 	byRetention []*databaseMappings          // ordered by retention period (shortest first)
 	byName      map[string]*databaseMappings // indexed by name
 
-	log   xlog.Logger
-	clock clock.Clock
+	watch  kv.ValueWatch
+	closed chan struct{}
+	log    xlog.Logger
+	clock  clock.Clock
 }
 
 // NewClusterMappingProvider returns a new ClusterMappingProvider
 // around a kv store and key
-// TODO(mmihic): Add in the kv store stuff
-func NewClusterMappingProvider(opts ClusterMappingProviderOptions) (storage.ClusterMappingProvider, error) {
+func NewClusterMappingProvider(
+	key string,
+	kvStore kv.Store,
+	opts ClusterMappingProviderOptions,
+) (storage.ClusterMappingProvider, error) {
 	if opts == nil {
 		opts = clusterMappingProviderOptions{}
 	}
@@ -81,14 +87,24 @@ func NewClusterMappingProvider(opts ClusterMappingProviderOptions) (storage.Clus
 		log = xlog.NullLogger
 	}
 
-	return &clusterMappingProvider{
+	watch, err := kvStore.Watch(key)
+	if err != nil {
+		return nil, err
+	}
+
+	prov := &clusterMappingProvider{
 		byName: make(map[string]*databaseMappings),
 		log:    log,
 		clock:  c,
-	}, nil
+		watch:  watch,
+		closed: make(chan struct{}),
+	}
+
+	go prov.watchPlacementChanges()
+	return prov, nil
 }
 
-// MappingsForShard returns the mappings for a given shard and retention policy
+// QueryMappings returns the mappings for a given shard and retention policy
 func (mp *clusterMappingProvider) QueryMappings(
 	shard uint32, start, end time.Time) storage.ClusterMappingIter {
 
@@ -105,6 +121,13 @@ func (mp *clusterMappingProvider) QueryMappings(
 	return &clusterMappingIter{
 		prior: dbm.findActiveForShard(uint(shard)),
 	}
+}
+
+// Close closes the provider and stops watching for placement changes
+func (mp *clusterMappingProvider) Close() error {
+	mp.watch.Close()
+	<-mp.closed
+	return nil
 }
 
 // findDatabaseMappings finds the database mappings that apply to the given retention
@@ -170,6 +193,23 @@ func (mp *clusterMappingProvider) update(p *schema.Placement) error {
 	mp.byRetention, mp.byName = byRetention, byName
 	mp.Unlock()
 	return nil
+}
+
+// watchPlacementChanges is a background goroutine that watches
+// for placement changes
+func (mp *clusterMappingProvider) watchPlacementChanges() {
+	var placement schema.Placement
+	for range mp.watch.C() {
+		val := mp.watch.Get()
+		if err := val.Unmarshal(&placement); err != nil {
+			mp.log.Errorf("could not unmarshal placement data: %v", err)
+			continue
+		}
+
+		mp.log.Infof("received placement version %d", val.Version())
+		mp.update(&placement)
+	}
+	close(mp.closed)
 }
 
 // databaseMappings are the mappings for a given database.
