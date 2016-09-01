@@ -22,12 +22,15 @@ import (
 	"time"
 
 	"github.com/facebookgo/clock"
+	"github.com/m3db/m3x/close"
 	"github.com/m3db/m3x/log"
 	"github.com/m3db/m3x/time"
 )
 
 // A ClusterMappingProvider provides cluster mapping rules
 type ClusterMappingProvider interface {
+	xclose.Closer
+
 	// QueryMappings returns the active cluster mappings for the given query
 	QueryMappings(shard uint32, start, end time.Time) ClusterMappingIter
 }
@@ -43,22 +46,23 @@ type ClusterMappingIter interface {
 	Current() ClusterMapping
 }
 
-// A ClusterMapping defines which cluster holds the datapoints within a given timeframe
+// A ClusterMapping defines which cluster holds the datapoints within a given
+// timeframe
 type ClusterMapping interface {
 	// Cluster is the cluster that is targeted by this mapping
 	Cluster() string
 
-	// CutoffTime defines the time that reads from FromCluster should stop.  Will
+	// CutoffTime defines the time that reads from Cluster should stop.  Will
 	// inherently fall after the WriteCutoverTime, to account for configuration
 	// changes not arriving at all writers simultaneously
 	CutoffTime() time.Time
 
-	// ReadCutoverTime defines the time that reads to ToCluster should begin
+	// ReadCutoverTime defines the time that reads to Cluster should begin
 	ReadCutoverTime() time.Time
 
-	// WriteCutoverTime defines the time that writes to ToCluster should begin.  Will
-	// inherently fall after ReadCutoverTime, to account for configuration changes
-	// reaching writers ahead of readers.
+	// WriteCutoverTime defines the time that writes to Cluster should begin.
+	// Will inherently fall after ReadCutoverTime, to account for configuration
+	// changes reaching writers ahead of readers.
 	WriteCutoverTime() time.Time
 }
 
