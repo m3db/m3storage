@@ -230,6 +230,7 @@ func newDatabaseMappings(db *schema.Database, log xlog.Logger) (*databaseMapping
 		log:                log,
 	}
 
+	sort.Sort(mappingRuleSetsByVersion(db.MappingRules))
 	for _, rules := range db.MappingRules {
 		if err := dbm.applyRules(rules); err != nil {
 			return nil, err
@@ -250,20 +251,7 @@ func (dbm *databaseMappings) clone() *databaseMappings {
 	}
 
 	for n, m := range dbm.active {
-		var prior *clusterMapping
-		if m.prior != nil {
-			prior = m.prior.clone()
-		}
-
-		clone.active[n] = &activeClusterMapping{
-			clusterMapping: clusterMapping{
-				cluster:          m.cluster,
-				readCutoverTime:  m.readCutoverTime,
-				writeCutoverTime: m.writeCutoverTime,
-				prior:            prior,
-			},
-			shards: m.shards.Clone(),
-		}
+		clone.active[n] = m.clone()
 	}
 
 	return clone
@@ -277,7 +265,7 @@ func (dbm *databaseMappings) update(db *schema.Database) error {
 	}
 
 	// Apply new rules
-	// NB(mmihic): Assumes mapping rule sets are sorted in ascending version order
+	sort.Sort(mappingRuleSetsByVersion(db.MappingRules))
 	for _, rules := range db.MappingRules {
 		if rules.ForVersion <= dbm.version {
 			continue
@@ -447,6 +435,13 @@ type activeClusterMapping struct {
 	shards *bitset.BitSet
 }
 
+func (m *activeClusterMapping) clone() *activeClusterMapping {
+	return &activeClusterMapping{
+		clusterMapping: *m.clusterMapping.clone(),
+		shards:         m.shards.Clone(),
+	}
+}
+
 // sort.Interface for sorting databaseMappings by retention period
 type databaseMappingsByMaxRetention []*databaseMappings
 
@@ -454,6 +449,15 @@ func (dbs databaseMappingsByMaxRetention) Len() int      { return len(dbs) }
 func (dbs databaseMappingsByMaxRetention) Swap(i, j int) { dbs[i], dbs[j] = dbs[j], dbs[i] }
 func (dbs databaseMappingsByMaxRetention) Less(i, j int) bool {
 	return dbs[i].maxRetentionInSecs < dbs[j].maxRetentionInSecs
+}
+
+// sort.Interface for sorting ClusterMappingRuleSets by version order
+type mappingRuleSetsByVersion []*schema.ClusterMappingRuleSet
+
+func (m mappingRuleSetsByVersion) Len() int      { return len(m) }
+func (m mappingRuleSetsByVersion) Swap(i, j int) { m[i], m[j] = m[j], m[i] }
+func (m mappingRuleSetsByVersion) Less(i, j int) bool {
+	return m[i].ForVersion < m[j].ForVersion
 }
 
 // clusterMappingProviderOptions are options to a ClusterMappingProvider
