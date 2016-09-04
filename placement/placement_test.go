@@ -461,6 +461,102 @@ func TestPlacement_JoinClusterNonExistentDatabase(t *testing.T) {
 	require.Equal(t, errDatabaseNotFound, err)
 }
 
+func TestPlacement_UpdateClusterConfigOnExisting(t *testing.T) {
+	ts := newPlacementTestSuite(t)
+	ts.clock.Add(time.Second * 34)
+
+	// Create a database with one cluster and commit
+	require.NoError(t, ts.sp.AddDatabase(schema.DatabaseProperties{
+		Name:               "foo",
+		MaxRetentionInSecs: 240000,
+		NumShards:          4096,
+	}))
+	require.NoError(t, ts.sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "c1",
+		Type:   "m3db",
+		Weight: 256,
+	}, []byte("c1-config1")))
+
+	ts.commitLatest()
+
+	// Update the config for that cluster
+	require.NoError(t, ts.sp.UpdateClusterConfig("foo", "c1", []byte("c1-config2")))
+
+	// Confirm changes are correct
+	requireEqualChanges(t, &schema.PlacementChanges{
+		DatabaseChanges: map[string]*schema.DatabaseChanges{
+			"foo": &schema.DatabaseChanges{
+				ClusterConfigUpdates: map[string][]byte{
+					"c1": []byte("c1-config2"),
+				},
+			},
+		},
+	}, ts.latestChanges())
+}
+
+func TestPlacement_UpdateClusterConfigOnJoining(t *testing.T) {
+	ts := newPlacementTestSuite(t)
+	ts.clock.Add(time.Second * 34)
+
+	// Create a database with one cluster and commit
+	require.NoError(t, ts.sp.AddDatabase(schema.DatabaseProperties{
+		Name:               "foo",
+		MaxRetentionInSecs: 240000,
+		NumShards:          4096,
+	}))
+	ts.commitLatest()
+
+	// Join a new cluster...
+	require.NoError(t, ts.sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "c1",
+		Type:   "m3db",
+		Weight: 256,
+	}, []byte("c1-config1")))
+
+	// ...then update its config
+	require.NoError(t, ts.sp.UpdateClusterConfig("foo", "c1", []byte("c1-config2")))
+
+	// Confirm changes are correct
+	requireEqualChanges(t, &schema.PlacementChanges{
+		DatabaseChanges: map[string]*schema.DatabaseChanges{
+			"foo": &schema.DatabaseChanges{
+				Joins: map[string]*schema.ClusterJoin{
+					"c1": &schema.ClusterJoin{
+						Cluster: &schema.Cluster{
+							Properties: &schema.ClusterProperties{
+								Name:   "c1",
+								Type:   "m3db",
+								Weight: 256,
+							},
+							Status:        schema.ClusterStatus_ACTIVE,
+							CreatedAt:     xtime.ToUnixMillis(ts.clock.Now()),
+							LastUpdatedAt: xtime.ToUnixMillis(ts.clock.Now()),
+							Config:        []byte("c1-config2"),
+						},
+					},
+				},
+			},
+		},
+	}, ts.latestChanges())
+}
+
+func TestPlacement_UpdateClusterConfigOnNonExistentDatabase(t *testing.T) {
+	ts := newPlacementTestSuite(t)
+	ts.clock.Add(time.Second * 34)
+	require.Equal(t, errDatabaseNotFound, ts.sp.UpdateClusterConfig("foo", "c1", []byte("c1-config2")))
+}
+
+func TestPlacement_UpdateClusterConfigOnOnExistentCluster(t *testing.T) {
+	ts := newPlacementTestSuite(t)
+
+	require.NoError(t, ts.sp.AddDatabase(schema.DatabaseProperties{
+		Name:               "foo",
+		MaxRetentionInSecs: 240000,
+		NumShards:          4096,
+	}))
+	require.Equal(t, errClusterNotFound, ts.sp.UpdateClusterConfig("foo", "c1", []byte("c1-config2")))
+}
+
 func TestPlacement_DecommissionExistingCluster(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
@@ -1555,6 +1651,7 @@ func requireEqualClusters(t *testing.T, dbname, cname string, c1, c2 *schema.Clu
 	require.Equal(t, c1.Properties.Type, c2.Properties.Type, "Type[%s:%s]", dbname, cname)
 	require.Equal(t, c1.Status, c2.Status, "Status[%s:%s]", dbname, cname)
 	require.Equal(t, c1.CreatedAt, c2.CreatedAt, "CreatedAt[%s:%s]", dbname, cname)
+	require.Equal(t, string(c1.Config), string(c2.Config), "Config[%s:%s]", dbname, cname)
 }
 
 func requireEqualChanges(t *testing.T, c1, c2 *schema.PlacementChanges) {
@@ -1579,10 +1676,19 @@ func requireEqualDatabaseChanges(t *testing.T, dbname string, c1, c2 *schema.Dat
 		require.NotNil(t, j2, "no join for %s in %s", cname, dbname)
 		requireEqualClusters(t, dbname, cname, j1.Cluster, j2.Cluster)
 	}
+	require.Equal(t, len(c1.Joins), len(c2.Joins))
 
 	for cname, d1 := range c1.Decomms {
 		d2 := c2.Decomms[cname]
 		require.NotNil(t, d2, "no decomm for %s in %s", cname, dbname)
 		require.Equal(t, d1.ClusterName, d2.ClusterName, "ClusterName[%s:%s]", dbname, cname)
 	}
+	require.Equal(t, len(c1.Decomms), len(c2.Decomms))
+
+	for cname, u1 := range c1.ClusterConfigUpdates {
+		u2 := c2.ClusterConfigUpdates[cname]
+		require.NotNil(t, u2, "no config update for %s in %s", cname, dbname)
+		require.Equal(t, string(u1), string(u2), "ClusterConfig[%s:%s]", dbname, cname)
+	}
+	require.Equal(t, len(c1.ClusterConfigUpdates), len(c2.ClusterConfigUpdates))
 }
