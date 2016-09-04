@@ -62,10 +62,7 @@ type clusterMappingProvider struct {
 
 // NewClusterMappingProvider returns a new ClusterMappingProvider
 // around a kv store and key
-func NewClusterMappingProvider(
-	key string,
-	kvStore kv.Store,
-	opts ClusterMappingProviderOptions,
+func NewClusterMappingProvider(key string, kvStore kv.Store, opts ClusterMappingProviderOptions,
 ) (storage.ClusterMappingProvider, error) {
 	if opts == nil {
 		opts = clusterMappingProviderOptions{}
@@ -118,7 +115,15 @@ func (mp *clusterMappingProvider) QueryMappings(
 
 // WatchCluster retrieves a cluster configuration and watches for changes
 func (mp *clusterMappingProvider) WatchCluster(database, cluster string) (storage.ClusterWatch, error) {
-	return nil, nil
+	mp.RLock()
+	db := mp.byName[database]
+	mp.RUnlock()
+
+	if db == nil {
+		return nil, errDatabaseNotFound
+	}
+
+	return db.clusters.watch(cluster)
 }
 
 // Close closes the provider and stops watching for placement changes

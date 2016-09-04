@@ -47,7 +47,7 @@ func newClusters(log xlog.Logger) *clusters {
 }
 
 // watchCluster watches the given named cluster
-func (cc *clusters) watchCluster(cname string) (storage.ClusterWatch, error) {
+func (cc *clusters) watch(cname string) (storage.ClusterWatch, error) {
 	cc.RLock()
 	w, exists := cc.w[cname]
 	cc.RUnlock()
@@ -56,6 +56,7 @@ func (cc *clusters) watchCluster(cname string) (storage.ClusterWatch, error) {
 		return nil, errClusterNotFound
 	}
 
+	cc.log.Debugf("watching %s", cname)
 	_, watch, err := w.Watch()
 	if err != nil {
 		return nil, err
@@ -72,15 +73,18 @@ func (cc *clusters) update(c cluster) {
 	currentVersion, existing := cc.v[c.name]
 	if !existing {
 		// This is a new cluster - create a watch for it and set the initial value
+		cc.log.Debugf("registering new cluster %s@%d", c.name, c.config.Version())
 		w := xwatch.NewWatchable()
-		cc.w[c.name] = w
+		cc.w[c.name], cc.v[c.name] = w, c.config.Version()
 		w.Update(c)
 		return
 	}
 
 	// This is an existing cluster and the version has updated, notify watches
 	if currentVersion < c.config.Version() {
+		cc.log.Debugf("update config for cluster %s from %d to %d", c.name, currentVersion, c.config.Version())
 		cc.w[c.name].Update(c)
+		cc.v[c.name] = c.config.Version()
 	}
 }
 

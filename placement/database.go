@@ -97,19 +97,21 @@ func (db *database) update(dbConfig *schema.Database) error {
 		}
 	}
 
-	// Swap out the mappings...
-	db.Lock()
-	db.version = dbConfig.Version
-	db.mappings = newMappings
-	db.Unlock()
-
-	// ...update clusters which are either new or have changed (protected by a
+	// Update clusters which are either new or have changed (protected by a
 	// separate mutex so read-time callers are not blocked unless they need a
-	// config change)
+	// config change)...
 	for cname, version := range newClusterVersions {
 		cConfig := dbConfig.Clusters[cname]
 		db.clusters.update(newCluster(db.name, cConfig, version))
 	}
+
+	// ...and swap out the mappings.  NB(mmihic): We do this after updating
+	// the clusters so that new clusters are available before anyone tries
+	// to use them as a result of the updated mappings.
+	db.Lock()
+	db.version = dbConfig.Version
+	db.mappings = newMappings
+	db.Unlock()
 
 	return nil
 }

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/m3db/m3cluster/kv"
+	"github.com/m3db/m3storage/generated/proto/configtest"
 	"github.com/m3db/m3storage/generated/proto/schema"
 	"github.com/m3db/m3x/log"
 	"github.com/m3db/m3x/time"
@@ -1800,4 +1801,16 @@ func requireEqualDatabaseChanges(t *testing.T, dbname string, c1, c2 *schema.Dat
 		require.Equal(t, string(u1), string(u2), "ClusterConfig[%s:%s]", dbname, cname)
 	}
 	require.Equal(t, len(c1.ClusterConfigUpdates), len(c2.ClusterConfigUpdates))
+}
+
+func newTestConfig(t *testing.T, hosts ...string) *configtest.TestConfig {
+	cfg := &configtest.TestConfig{}
+	cfg.Hosts = append(cfg.Hosts, hosts...)
+	return cfg
+}
+
+func newTestConfigBytes(t *testing.T, hosts ...string) []byte {
+	bytes, err := proto.Marshal(newTestConfig(t, hosts...))
+	require.NoError(t, err)
+	return bytes
 }

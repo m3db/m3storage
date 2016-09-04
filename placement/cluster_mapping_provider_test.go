@@ -24,13 +24,14 @@ import (
 	"time"
 
 	"github.com/m3db/m3storage"
+	"github.com/m3db/m3storage/generated/proto/configtest"
 	"github.com/m3db/m3storage/generated/proto/schema"
 	"github.com/m3db/m3x/log"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestQueryMappings(t *testing.T) {
+func TestProvider_QueryMappings(t *testing.T) {
 	var (
 		shortRetention  = time.Hour * 12
 		mediumRetention = time.Hour * 24 * 7
@@ -247,31 +248,103 @@ func TestQueryMappings(t *testing.T) {
 	}
 }
 
-func Benchmark1Cluster(b *testing.B) {
+func TestProvider_WatchClusterNonExistentDatabase(t *testing.T) {
+	ts := newPlacementTestSuite(t)
+	prov := newTestClusterMappingProvider(ts)
+
+	defer prov.Close()
+
+	w, err := prov.WatchCluster("foo", "c1")
+	require.Equal(t, errDatabaseNotFound, err)
+	require.Nil(t, w)
+}
+
+func TestProvider_WatchClusterNonExistentCluster(t *testing.T) {
+	ts := newPlacementTestSuite(t)
+	prov := newTestClusterMappingProvider(ts)
+
+	defer prov.Close()
+
+	require.NoError(t, ts.sp.AddDatabase(schema.DatabaseProperties{
+		Name:               "wow",
+		NumShards:          int32(testShards),
+		MaxRetentionInSecs: int32(time.Hour * 24 / time.Second),
+	}))
+	ts.commitLatest()
+	prov.update(ts.latestPlacement())
+
+	w, err := prov.WatchCluster("wow", "c1")
+	require.Equal(t, errClusterNotFound, err)
+	require.Nil(t, w)
+}
+
+func TestProvider_WatchCluster(t *testing.T) {
+	ts := newPlacementTestSuite(t)
+	prov := newTestClusterMappingProvider(ts)
+
+	defer prov.Close()
+
+	require.NoError(t, ts.sp.AddDatabase(schema.DatabaseProperties{
+		Name:               "wow",
+		NumShards:          int32(testShards),
+		MaxRetentionInSecs: int32(time.Hour * 24 / time.Second),
+	}))
+	require.NoError(t, ts.sp.JoinCluster("wow", schema.ClusterProperties{
+		Name:   "c1",
+		Weight: 256,
+		Type:   "m3db",
+	}, newTestConfigBytes(t, "h1", "h2", "h3")))
+	ts.commitLatest()
+	prov.update(ts.latestPlacement())
+
+	// Retrieve the cluster config and confirm it is the correct version
+	w, err := prov.WatchCluster("wow", "c1")
+	require.NoError(t, err)
+
+	var cfg configtest.TestConfig
+	<-w.C()
+	c := w.Get()
+	require.Equal(t, 1, c.Config().Version())
+	require.NoError(t, c.Config().Unmarshal(&cfg))
+	require.Equal(t, []string{"h1", "h2", "h3"}, cfg.Hosts)
+
+	// Update the cluster config and make sure it propagates
+	require.NoError(t, ts.sp.UpdateClusterConfig("wow", "c1",
+		newTestConfigBytes(t, "h1", "h2")))
+	ts.commitLatest()
+
+	<-w.C()
+	c = w.Get()
+	require.Equal(t, 2, c.Config().Version())
+	require.NoError(t, c.Config().Unmarshal(&cfg))
+	require.Equal(t, []string{"h1", "h2"}, cfg.Hosts)
+}
+
+func BenchmarkProvider_1Cluster(b *testing.B) {
 	benchmarkNClusterSplits(b, 1, 1)
 }
 
-func Benchmark2ClusterSplits(b *testing.B) {
+func BenchmarkProvider_2ClusterSplits(b *testing.B) {
 	benchmarkNClusterSplits(b, 2, 2)
 }
 
-func Benchmark8ClusterSplits(b *testing.B) {
+func BenchmarkProvider_8ClusterSplits(b *testing.B) {
 	benchmarkNClusterSplits(b, 8, 8)
 }
 
-func Benchmark32ClusterSplits(b *testing.B) {
+func BenchmarkProvider_32ClusterSplits(b *testing.B) {
 	benchmarkNClusterSplits(b, 32, 32)
 }
 
-func Benchmark64ClusterSplits(b *testing.B) {
+func BenchmarkProvider_64ClusterSplits(b *testing.B) {
 	benchmarkNClusterSplits(b, 64, 60)
 }
 
-func Benchmark128ClusterSplits(b *testing.B) {
+func BenchmarkProvider_128ClusterSplits(b *testing.B) {
 	benchmarkNClusterSplits(b, 128, 103)
 }
 
-func Benchmark256ClusterSplits(b *testing.B) {
+func BenchmarkProvider_256ClusterSplits(b *testing.B) {
 	benchmarkNClusterSplits(b, 256, 135)
 }
 
