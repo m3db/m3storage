@@ -370,9 +370,9 @@ func (dbm *databaseMappings) gc() {
 
 // findActiveForShard finds the active mapping for a given shard
 func (dbm *databaseMappings) findActiveForShard(shard uint) *clusterMapping {
-	for _, active := range dbm.active {
-		if active.shards.Test(shard) {
-			return &active.clusterMapping
+	for _, a := range dbm.active {
+		if a.shards.Test(shard) {
+			return &a.clusterMapping
 		}
 	}
 
