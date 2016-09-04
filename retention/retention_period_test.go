@@ -16,7 +16,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package storage
+package retention
 
 import (
 	"sort"
@@ -26,14 +26,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRetentionPeriodsByDuration(t *testing.T) {
-	periods := []RetentionPeriod{
-		NewRetentionPeriod(time.Hour * 6),
-		NewRetentionPeriod(time.Hour * 24),
-		NewRetentionPeriod(time.Hour * 12),
+func TestPeriodsByDuration(t *testing.T) {
+	periods := []Period{
+		NewPeriod(time.Hour * 6),
+		NewPeriod(time.Hour * 24),
+		NewPeriod(time.Hour * 12),
 	}
 
-	sort.Sort(RetentionPeriodsByDuration(periods))
+	sort.Sort(PeriodsByDuration(periods))
 	require.Equal(t, (time.Hour * 6).String(), periods[0].Duration().String())
 	require.Equal(t, (time.Hour * 12).String(), periods[1].Duration().String())
 	require.Equal(t, (time.Hour * 24).String(), periods[2].Duration().String())

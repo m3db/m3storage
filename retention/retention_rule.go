@@ -16,7 +16,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package storage
+package retention
 
 import (
 	"errors"
@@ -25,39 +25,40 @@ import (
 	"strings"
 	"time"
 
-	"github.com/facebookgo/clock"
 	"github.com/m3db/m3x/log"
 	"github.com/m3db/m3x/time"
+
+	"github.com/facebookgo/clock"
 )
 
 var (
 	errInvalidQueryRange = errors.New("invalid query; from does not precede until")
 )
 
-// A RetentionPolicy describes the resolution and retention period for a set of
+// A Policy describes the resolution and retention period for a set of
 // datapoints (e.g. 1min at 30d)
-type RetentionPolicy interface {
+type Policy interface {
 	fmt.Stringer
 
 	// Resolution is the resolution at which the datapoints will be stored
 	Resolution() Resolution
 
-	// RetentionPeriod is the amount of time to retain the datapoints
-	RetentionPeriod() RetentionPeriod
+	// Period is the amount of time to retain the datapoints
+	Period() Period
 
 	// Equal checks whether this retention policy is equal to another
-	Equal(other RetentionPolicy) bool
+	Equal(other Policy) bool
 }
 
-// RetentionPoliciesByRetentionPeriod is a sort.Interface for sorting a slice of
-// RetentionPolicy objects by the duration of their retention period, shortest
+// PoliciesByPeriod is a sort.Interface for sorting a slice of
+// Policy objects by the duration of their retention period, shortest
 // retention period first
-type RetentionPoliciesByRetentionPeriod []RetentionPolicy
+type PoliciesByPeriod []Policy
 
 // Less compares two retention policies by their retention period.  Policies
 // with identical retention periods are sub-sorted by resolution, finest resolution first
-func (rr RetentionPoliciesByRetentionPeriod) Less(i, j int) bool {
-	d1, d2 := rr[i].RetentionPeriod().Duration(), rr[j].RetentionPeriod().Duration()
+func (rr PoliciesByPeriod) Less(i, j int) bool {
+	d1, d2 := rr[i].Period().Duration(), rr[j].Period().Duration()
 	if d1 < d2 {
 		return true
 	}
@@ -70,22 +71,22 @@ func (rr RetentionPoliciesByRetentionPeriod) Less(i, j int) bool {
 }
 
 // Swap swaps two retention policies in the slice
-func (rr RetentionPoliciesByRetentionPeriod) Swap(i, j int) { rr[i], rr[j] = rr[j], rr[i] }
+func (rr PoliciesByPeriod) Swap(i, j int) { rr[i], rr[j] = rr[j], rr[i] }
 
 // Len returns the length of the retention policies slice
-func (rr RetentionPoliciesByRetentionPeriod) Len() int { return len(rr) }
+func (rr PoliciesByPeriod) Len() int { return len(rr) }
 
-// NewRetentionPolicy creates a new RetentionPolicy
-func NewRetentionPolicy(r Resolution, p RetentionPeriod) RetentionPolicy {
-	return retentionPolicy{
+// NewPolicy creates a new Policy
+func NewPolicy(r Resolution, p Period) Policy {
+	return policy{
 		s: fmt.Sprintf("%s:%s", r.String(), p.String()),
 		r: r,
 		p: p,
 	}
 }
 
-// ParseRetentionPolicy parses a retention policy in the form of resolution:period
-func ParseRetentionPolicy(s string) (RetentionPolicy, error) {
+// ParsePolicy parses a retention policy in the form of resolution:period
+func ParsePolicy(s string) (Policy, error) {
 	parts := strings.Split(s, ":")
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid retention policy %s, expect in form 10s:7d", s)
@@ -100,15 +101,15 @@ func ParseRetentionPolicy(s string) (RetentionPolicy, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid retention policy %s, invalid retention period %s", s, parts[1])
 	}
-	p := NewRetentionPeriod(pDuration)
+	p := NewPeriod(pDuration)
 
-	return NewRetentionPolicy(r, p), nil
+	return NewPolicy(r, p), nil
 }
 
-// MustParseRetentionPolicy parses a retention policy, panicking if the policy
+// MustParsePolicy parses a retention policy, panicking if the policy
 // cannot be parsed
-func MustParseRetentionPolicy(s string) RetentionPolicy {
-	policy, err := ParseRetentionPolicy(s)
+func MustParsePolicy(s string) Policy {
+	policy, err := ParsePolicy(s)
 	if err != nil {
 		panic(err)
 	}
@@ -116,12 +117,12 @@ func MustParseRetentionPolicy(s string) RetentionPolicy {
 	return policy
 }
 
-// ParseRetentionPolicies parses a list of retention policies in stringified form
-func ParseRetentionPolicies(s string) ([]RetentionPolicy, error) {
+// ParsePolicies parses a list of retention policies in stringified form
+func ParsePolicies(s string) ([]Policy, error) {
 	policySpecs := strings.Split(s, ",")
-	policies := make([]RetentionPolicy, 0, len(policySpecs))
+	policies := make([]Policy, 0, len(policySpecs))
 	for _, spec := range policySpecs {
-		p, err := ParseRetentionPolicy(spec)
+		p, err := ParsePolicy(spec)
 		if err != nil {
 			return nil, err
 		}
@@ -129,14 +130,14 @@ func ParseRetentionPolicies(s string) ([]RetentionPolicy, error) {
 		policies = append(policies, p)
 	}
 
-	sort.Sort(RetentionPoliciesByRetentionPeriod(policies))
+	sort.Sort(PoliciesByPeriod(policies))
 	return policies, nil
 }
 
-// MustParseRetentionPolicies parses a list of retention policies, panicking if
+// MustParsePolicies parses a list of retention policies, panicking if
 // the policies cannot be parsed
-func MustParseRetentionPolicies(s string) []RetentionPolicy {
-	policies, err := ParseRetentionPolicies(s)
+func MustParsePolicies(s string) []Policy {
+	policies, err := ParsePolicies(s)
 	if err != nil {
 		panic(err)
 	}
@@ -144,37 +145,37 @@ func MustParseRetentionPolicies(s string) []RetentionPolicy {
 	return policies
 }
 
-// A RetentionRule defines the retention policies that apply to a set of
+// A Rule defines the retention policies that apply to a set of
 // metrics at a particular time.  Retention policy can change dynamically over
 // time in response to user actions, so retention rules have a CutoverTime and
 // CutoffTime which determine when the rules apply.  When determining which
 // retention periods to query over, the storage manager determines which rule
 // apply within the query time range, then builds a set of sub-queries covering
 // each retention period
-type RetentionRule interface {
-	// RetentionPolicies are the retention policies at the time of the rule, ordered
+type Rule interface {
+	// Policies are the retention policies at the time of the rule, ordered
 	// by retention period (from shorted to longest)
-	RetentionPolicies() []RetentionPolicy
-	SetRetentionPolicies(p []RetentionPolicy) RetentionRule
+	Policies() []Policy
+	SetPolicies(p []Policy) Rule
 
 	// CutoverTime is the time that the rule will begin to be applied
 	CutoverTime() time.Time
-	SetCutoverTime(t time.Time) RetentionRule
+	SetCutoverTime(t time.Time) Rule
 
 	// CutoffTime is the time that the rule no longer applies
 	CutoffTime() time.Time
-	SetCutoffTime(t time.Time) RetentionRule
+	SetCutoffTime(t time.Time) Rule
 }
 
-// NewRetentionRule creates a new retention rule
-func NewRetentionRule() RetentionRule { return new(retentionRule) }
+// NewRule creates a new retention rule
+func NewRule() Rule { return new(rule) }
 
-// RetentionRulesByCutoffTime is a sort.Interface for sorting RetentionRules by
+// RulesByCutoffTime is a sort.Interface for sorting Rules by
 // CutoffTime, with the latest cutoff time first
-type RetentionRulesByCutoffTime []RetentionRule
+type RulesByCutoffTime []Rule
 
 // Less compares two retention rules by their cutoff time
-func (rr RetentionRulesByCutoffTime) Less(i, j int) bool {
+func (rr RulesByCutoffTime) Less(i, j int) bool {
 	if rr[i].CutoffTime().IsZero() {
 		return true
 	}
@@ -187,58 +188,58 @@ func (rr RetentionRulesByCutoffTime) Less(i, j int) bool {
 }
 
 // Swap swaps two retention rules in the slice
-func (rr RetentionRulesByCutoffTime) Swap(i, j int) { rr[i], rr[j] = rr[j], rr[i] }
+func (rr RulesByCutoffTime) Swap(i, j int) { rr[i], rr[j] = rr[j], rr[i] }
 
 // Len returns the length of the retention rule slice
-func (rr RetentionRulesByCutoffTime) Len() int { return len(rr) }
+func (rr RulesByCutoffTime) Len() int { return len(rr) }
 
-// RetentionRuleProvider looks up retention rules for a given id and timerange
-type RetentionRuleProvider interface {
-	// FindRetentionRules returns the list of retention rules that apply
+// RuleProvider looks up retention rules for a given id and timerange
+type RuleProvider interface {
+	// FindRules returns the list of retention rules that apply
 	// for the given id over the requested time range
-	FindRetentionRules(id string, start, end time.Time) ([]RetentionRule, error)
+	FindRules(id string, start, end time.Time) ([]Rule, error)
 }
 
-type retentionPolicy struct {
+type policy struct {
 	s string
 	r Resolution
-	p RetentionPeriod
+	p Period
 }
 
-func (p retentionPolicy) String() string                   { return p.s }
-func (p retentionPolicy) Resolution() Resolution           { return p.r }
-func (p retentionPolicy) RetentionPeriod() RetentionPeriod { return p.p }
-func (p retentionPolicy) Equal(other RetentionPolicy) bool {
-	return p.r.Equal(other.Resolution()) && p.p.Equal(other.RetentionPeriod())
+func (p policy) String() string         { return p.s }
+func (p policy) Resolution() Resolution { return p.r }
+func (p policy) Period() Period         { return p.p }
+func (p policy) Equal(other Policy) bool {
+	return p.r.Equal(other.Resolution()) && p.p.Equal(other.Period())
 }
 
-type retentionRule struct {
-	policies                []RetentionPolicy
+type rule struct {
+	policies                []Policy
 	cutoffTime, cutoverTime time.Time
 }
 
-func (r *retentionRule) RetentionPolicies() []RetentionPolicy { return r.policies }
-func (r *retentionRule) CutoverTime() time.Time               { return r.cutoverTime }
-func (r *retentionRule) CutoffTime() time.Time                { return r.cutoffTime }
+func (r *rule) Policies() []Policy     { return r.policies }
+func (r *rule) CutoverTime() time.Time { return r.cutoverTime }
+func (r *rule) CutoffTime() time.Time  { return r.cutoffTime }
 
-func (r *retentionRule) SetRetentionPolicies(p []RetentionPolicy) RetentionRule {
+func (r *rule) SetPolicies(p []Policy) Rule {
 	r.policies = p
 	return r
 }
 
-func (r *retentionRule) SetCutoverTime(t time.Time) RetentionRule {
+func (r *rule) SetCutoverTime(t time.Time) Rule {
 	r.cutoverTime = t
 	return r
 }
 
-func (r *retentionRule) SetCutoffTime(t time.Time) RetentionRule {
+func (r *rule) SetCutoffTime(t time.Time) Rule {
 	r.cutoffTime = t
 	return r
 }
 
 type query struct {
 	xtime.Range
-	RetentionPolicy
+	Policy
 }
 
 type retentionQueryPlanner struct {
@@ -246,7 +247,7 @@ type retentionQueryPlanner struct {
 	clock clock.Clock
 }
 
-func (p retentionQueryPlanner) buildRetentionQueryPlan(from, until time.Time, rules []RetentionRule) ([]query, error) {
+func (p retentionQueryPlanner) buildRetentionQueryPlan(from, until time.Time, rules []Rule) ([]query, error) {
 	if !from.Before(until) {
 		return nil, errInvalidQueryRange
 	}
@@ -289,25 +290,25 @@ func (p retentionQueryPlanner) buildRetentionQueryPlan(from, until time.Time, ru
 		// retention period first.  Stops as soon as we've reached the last policy
 		// whose retention period falls within the rule or query bounds
 		lastPolicyStart := ruleEnd
-		policies := r.RetentionPolicies()
+		policies := r.Policies()
 		for n, policy := range policies {
 			query := query{
-				RetentionPolicy: policy,
+				Policy: policy,
 				Range: xtime.Range{
 					End:   lastPolicyStart,
-					Start: now.Add(-policy.RetentionPeriod().Duration()),
+					Start: now.Add(-policy.Period().Duration()),
 				},
 			}
 
 			if !query.Range.Start.Before(ruleEnd) {
 				p.log.Debugf("policy %d (%s:%s) starts (%s) after end of rule (%s), does not apply",
-					n, policy.Resolution(), policy.RetentionPeriod(), query.Range.Start, ruleEnd)
+					n, policy.Resolution(), policy.Period(), query.Range.Start, ruleEnd)
 				continue
 			}
 
 			if query.Range.End.Before(ruleStart) {
 				p.log.Debugf("policy %d (%s:%s) ends (%s) before the start of the rule (%s), no more policies apply",
-					n, policy.Resolution(), policy.RetentionPeriod(), query.Range.End, ruleStart)
+					n, policy.Resolution(), policy.Period(), query.Range.End, ruleStart)
 				break
 			}
 
@@ -320,7 +321,7 @@ func (p retentionQueryPlanner) buildRetentionQueryPlan(from, until time.Time, ru
 			}
 
 			p.log.Debugf("policy %d (%s:%s) applies from %s until %s (%s)",
-				n, policy.Resolution(), policy.RetentionPeriod(),
+				n, policy.Resolution(), policy.Period(),
 				query.Range.Start, query.Range.End, query.Range.End.Sub(query.Range.Start))
 
 			if query.Range.IsEmpty() {
@@ -341,7 +342,7 @@ func (p retentionQueryPlanner) buildRetentionQueryPlan(from, until time.Time, ru
 	lastQuery := queries[0]
 	coalescedQueries := make([]query, 0, len(queries))
 	for i := 1; i < len(queries); i++ {
-		if queries[i].RetentionPolicy.Equal(lastQuery.RetentionPolicy) {
+		if queries[i].Policy.Equal(lastQuery.Policy) {
 			lastQuery.Start = queries[i].Start
 			continue
 		}
