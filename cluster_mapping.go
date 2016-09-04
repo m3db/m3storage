@@ -27,12 +27,28 @@ import (
 	"github.com/m3db/m3x/time"
 )
 
+// A ClusterWatch watches for config changes on a cluster
+type ClusterWatch interface {
+	xclose.Closer
+
+	// C is the channel receiving notifications of config changes
+	C() <-chan struct{}
+
+	// Get returns the current state of the cluster
+	Get() Cluster
+}
+
 // A ClusterMappingProvider provides cluster mapping rules
 type ClusterMappingProvider interface {
 	xclose.Closer
 
 	// QueryMappings returns the active cluster mappings for the given query
 	QueryMappings(shard uint32, start, end time.Time) (ClusterMappingIter, error)
+
+	// WatchCluster returns the config for a cluster as a watch that can
+	// be used to listen for updates to that cluster.  Callers must wait
+	// on the watch channel before attempting to access the Cluster
+	WatchCluster(database, cluster string) (ClusterWatch, error)
 }
 
 // ClusterMappingIter is an iterator over ClusterMappings.  Allows provider to

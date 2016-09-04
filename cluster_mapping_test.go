@@ -163,6 +163,11 @@ func (scm fakeClusterMappingProvider) QueryMappings(shard uint32, start, end tim
 	}, nil
 }
 
+func (scm fakeClusterMappingProvider) WatchCluster(database, cluster string) (ClusterWatch, error) {
+	// TODO(mmihic): Support later
+	return nil, errors.New("no such cluster")
+}
+
 func (scm fakeClusterMappingProvider) Close() error { return nil }
 
 type fakeClusterMappingIter struct {

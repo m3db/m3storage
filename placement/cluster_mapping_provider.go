@@ -19,7 +19,6 @@
 package placement
 
 import (
-	"errors"
 	"sort"
 	"sync"
 	"time"
@@ -28,14 +27,8 @@ import (
 	"github.com/m3db/m3storage"
 	"github.com/m3db/m3storage/generated/proto/schema"
 	"github.com/m3db/m3x/log"
-	"github.com/m3db/m3x/time"
 
 	"github.com/facebookgo/clock"
-	"github.com/willf/bitset"
-)
-
-var (
-	errInvalidTransition = errors.New("invalid shard transition")
 )
 
 // ClusterMappingProviderOptions are options used to build a ClusterMappingProvider
@@ -58,8 +51,8 @@ func NewClusterMappingProviderOptions() ClusterMappingProviderOptions {
 // top of the placement data
 type clusterMappingProvider struct {
 	sync.RWMutex
-	byRetention []*databaseMappings          // ordered by retention period (shortest first)
-	byName      map[string]*databaseMappings // indexed by name
+	byRetention []*databaseMapping          // ordered by retention period (shortest first)
+	byName      map[string]*databaseMapping // indexed by name
 
 	watch  kv.ValueWatch
 	closed chan struct{}
@@ -93,7 +86,7 @@ func NewClusterMappingProvider(
 	}
 
 	prov := &clusterMappingProvider{
-		byName: make(map[string]*databaseMappings),
+		byName: make(map[string]*databaseMapping),
 		log:    log,
 		clock:  c,
 		watch:  watch,
@@ -123,6 +116,11 @@ func (mp *clusterMappingProvider) QueryMappings(
 	}, nil
 }
 
+// WatchCluster retrieves a cluster configuration and watches for changes
+func (mp *clusterMappingProvider) WatchCluster(database, cluster string) (storage.ClusterWatch, error) {
+	return nil, nil
+}
+
 // Close closes the provider and stops watching for placement changes
 func (mp *clusterMappingProvider) Close() error {
 	mp.watch.Close()
@@ -131,7 +129,7 @@ func (mp *clusterMappingProvider) Close() error {
 }
 
 // findDatabaseMappings finds the database mappings that apply to the given retention
-func (mp *clusterMappingProvider) findDatabaseMappings(retentionPeriodInSecs int32) *databaseMappings {
+func (mp *clusterMappingProvider) findDatabaseMappings(retentionPeriodInSecs int32) *databaseMapping {
 	// NB(mmihic): We use copy-on-write for the database mappings, so it's safe to return
 	// a reference without the
 	mp.RLock()
@@ -159,8 +157,8 @@ func (mp *clusterMappingProvider) update(p *schema.Placement) error {
 	// mappings by first making a copy, then updating the copy in place,
 	// then swapping out the pointers atomically
 	mp.RLock()
-	byName := make(map[string]*databaseMappings, len(mp.byName))
-	byRetention := make([]*databaseMappings, len(mp.byRetention))
+	byName := make(map[string]*databaseMapping, len(mp.byName))
+	byRetention := make([]*databaseMapping, len(mp.byRetention))
 	for n, dbm := range mp.byRetention {
 		dbm := dbm.clone()
 		byRetention[n], byName[dbm.name] = dbm, dbm
@@ -177,7 +175,7 @@ func (mp *clusterMappingProvider) update(p *schema.Placement) error {
 		}
 
 		// This is a new mapping - create and apply all rules
-		dbm, err := newDatabaseMappings(db, mp.log)
+		dbm, err := newDatabaseMapping(db, mp.log)
 		if err != nil {
 			return err
 		}
@@ -210,257 +208,6 @@ func (mp *clusterMappingProvider) watchPlacementChanges() {
 		mp.update(&placement)
 	}
 	close(mp.closed)
-}
-
-// databaseMappings are the mappings for a given database.
-type databaseMappings struct {
-	name               string
-	version            int32
-	maxRetentionInSecs int32
-	active             []*activeClusterMapping
-	log                xlog.Logger
-}
-
-// newDatabaseMappings returns a newly initialized set of databaseMappings
-func newDatabaseMappings(db *schema.Database, log xlog.Logger) (*databaseMappings, error) {
-	dbm := &databaseMappings{
-		name:               db.Properties.Name,
-		version:            db.Version,
-		maxRetentionInSecs: db.Properties.MaxRetentionInSecs,
-		log:                log,
-	}
-
-	sort.Sort(mappingRuleSetsByVersion(db.MappingRules))
-	for _, rules := range db.MappingRules {
-		if err := dbm.applyRules(rules); err != nil {
-			return nil, err
-		}
-	}
-
-	return dbm, nil
-}
-
-// clone clones the database mappings
-func (dbm *databaseMappings) clone() *databaseMappings {
-	clone := &databaseMappings{
-		name:               dbm.name,
-		version:            dbm.version,
-		maxRetentionInSecs: dbm.maxRetentionInSecs,
-		log:                dbm.log,
-		active:             make([]*activeClusterMapping, len(dbm.active)),
-	}
-
-	for n, m := range dbm.active {
-		clone.active[n] = m.clone()
-	}
-
-	return clone
-}
-
-// update updates the database with new mapping information
-func (dbm *databaseMappings) update(db *schema.Database) error {
-	// Short circuit if we are already at the proper version
-	if dbm.version >= db.Version {
-		return nil
-	}
-
-	// Apply new rules
-	sort.Sort(mappingRuleSetsByVersion(db.MappingRules))
-	for _, rules := range db.MappingRules {
-		if rules.ForVersion <= dbm.version {
-			continue
-		}
-
-		if err := dbm.applyRules(rules); err != nil {
-			return err
-		}
-	}
-
-	dbm.version = db.Version
-	return nil
-}
-
-// applyRules generates new mappings based on the given set of rules
-func (dbm *databaseMappings) applyRules(rules *schema.ClusterMappingRuleSet) error {
-	dbm.log.Infof("applying rule set %d for database %s", rules.ForVersion, dbm.name)
-
-	dbm.log.Infof("applying %d transitions for database %s", len(rules.ShardTransitions), dbm.name)
-	for _, t := range rules.ShardTransitions {
-		ruleShards := bitset.From(t.Shards.Bits)
-
-		// if there is no FromCluster, this is an initial assignment
-		if t.FromCluster == "" {
-			dbm.log.Infof("assigning %d shards to %s", ruleShards.Count(), t.ToCluster)
-			dbm.active = append(dbm.active, &activeClusterMapping{
-				shards: ruleShards,
-				clusterMapping: clusterMapping{
-					database:         dbm.name,
-					cluster:          t.ToCluster,
-					readCutoverTime:  xtime.FromUnixMillis(t.ReadCutoverTime),
-					writeCutoverTime: xtime.FromUnixMillis(t.WriteCutoverTime),
-				},
-			})
-			continue
-		}
-
-		// transition from prior clusters
-		for _, a := range dbm.active {
-			shards := a.shards.Intersection(ruleShards)
-			if shards.None() {
-				continue
-			}
-
-			if a.cluster != t.FromCluster {
-				// Gah! Something is broken
-				dbm.log.Errorf("expecting to transition %d shards from cluster %s to "+
-					"cluster %s but those shards are currently assigned to %s",
-					shards.Count(), t.FromCluster, t.ToCluster, a.cluster)
-				return errInvalidTransition
-			}
-
-			// create a mapping that closes the currently active mapping, then create
-			// a new active mapping pointing to the new cluster
-			dbm.log.Infof("transitioning %d shards from cluster %s:%s to %s:%s",
-				shards.Count(), dbm.name, t.FromCluster, dbm.name, t.ToCluster)
-			dbm.active = append(dbm.active, &activeClusterMapping{
-				shards: shards,
-				clusterMapping: clusterMapping{
-					database:         dbm.name,
-					cluster:          t.ToCluster,
-					readCutoverTime:  xtime.FromUnixMillis(t.ReadCutoverTime),
-					writeCutoverTime: xtime.FromUnixMillis(t.WriteCutoverTime),
-					prior: &clusterMapping{
-						database:         a.database,
-						cluster:          a.cluster,
-						readCutoverTime:  a.readCutoverTime,
-						writeCutoverTime: a.writeCutoverTime,
-						cutoffTime:       xtime.FromUnixMillis(t.CutoverCompleteTime),
-						prior:            a.prior,
-					},
-				},
-			})
-
-			// remove shards from the current active mapping, and delete that mapping
-			// if it no longer has any assigned shards
-			a.shards.InPlaceDifference(shards)
-
-			// stop processing the transition if all the shards have been re-assigned
-			ruleShards.InPlaceDifference(shards)
-			if ruleShards.None() {
-				break
-			}
-		}
-	}
-
-	dbm.gc()
-	return nil
-}
-
-// gc garbage collects any mappings that no longer apply.
-func (dbm *databaseMappings) gc() {
-	// Garbage collect active mappings that are no longer used
-	for n, a := range dbm.active {
-		if a.shards.Any() {
-			continue
-		}
-
-		dbm.active = append(dbm.active[:n], dbm.active[n+1:]...)
-	}
-
-	// TODO(mmihic): Garbage collect mappings that cutoff before the start of the
-	// database max retention
-}
-
-// findActiveForShard finds the active mapping for a given shard
-func (dbm *databaseMappings) findActiveForShard(shard uint) *clusterMapping {
-	for _, a := range dbm.active {
-		if a.shards.Test(shard) {
-			return &a.clusterMapping
-		}
-	}
-
-	return nil
-}
-
-// clusterMappingIter is a shard specific iterator over cluster mappings
-type clusterMappingIter struct {
-	current, prior *clusterMapping
-}
-
-// Next advances the iterator, returning true if there is another mapping
-func (iter *clusterMappingIter) Next() bool {
-	if iter.prior == nil {
-		return false
-	}
-
-	iter.current, iter.prior = iter.prior, iter.prior.prior
-	return true
-}
-
-// Current returns the current mapping
-func (iter *clusterMappingIter) Current() storage.ClusterMapping { return iter.current }
-
-// Close closes the iterator
-func (iter *clusterMappingIter) Close() error { return nil }
-
-// clusterMapping is a cluster mapping, duh
-type clusterMapping struct {
-	database, cluster                             string
-	readCutoverTime, writeCutoverTime, cutoffTime time.Time
-	prior                                         *clusterMapping
-}
-
-func (m clusterMapping) Database() string            { return m.database }
-func (m clusterMapping) Cluster() string             { return m.cluster }
-func (m clusterMapping) ReadCutoverTime() time.Time  { return m.readCutoverTime }
-func (m clusterMapping) WriteCutoverTime() time.Time { return m.writeCutoverTime }
-func (m clusterMapping) CutoffTime() time.Time       { return m.cutoffTime }
-
-func (m clusterMapping) clone() *clusterMapping {
-	var prior *clusterMapping
-	if m.prior != nil {
-		prior = m.prior.clone()
-	}
-
-	return &clusterMapping{
-		database:         m.database,
-		cluster:          m.cluster,
-		readCutoverTime:  m.readCutoverTime,
-		writeCutoverTime: m.writeCutoverTime,
-		cutoffTime:       m.cutoffTime,
-		prior:            prior,
-	}
-}
-
-// activeClusterMapping is a currently active cluster mapping
-type activeClusterMapping struct {
-	clusterMapping
-	shards *bitset.BitSet
-}
-
-func (m *activeClusterMapping) clone() *activeClusterMapping {
-	return &activeClusterMapping{
-		clusterMapping: *m.clusterMapping.clone(),
-		shards:         m.shards.Clone(),
-	}
-}
-
-// sort.Interface for sorting databaseMappings by retention period
-type databaseMappingsByMaxRetention []*databaseMappings
-
-func (dbs databaseMappingsByMaxRetention) Len() int      { return len(dbs) }
-func (dbs databaseMappingsByMaxRetention) Swap(i, j int) { dbs[i], dbs[j] = dbs[j], dbs[i] }
-func (dbs databaseMappingsByMaxRetention) Less(i, j int) bool {
-	return dbs[i].maxRetentionInSecs < dbs[j].maxRetentionInSecs
-}
-
-// sort.Interface for sorting ClusterMappingRuleSets by version order
-type mappingRuleSetsByVersion []*schema.ClusterMappingRuleSet
-
-func (m mappingRuleSetsByVersion) Len() int      { return len(m) }
-func (m mappingRuleSetsByVersion) Swap(i, j int) { m[i], m[j] = m[j], m[i] }
-func (m mappingRuleSetsByVersion) Less(i, j int) bool {
-	return m[i].ForVersion < m[j].ForVersion
 }
 
 // clusterMappingProviderOptions are options to a ClusterMappingProvider
