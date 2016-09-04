@@ -209,7 +209,7 @@ func TestQueryMappings(t *testing.T) {
 		for dbname, joins := range test.changes.joins {
 			changed = true
 			for _, join := range joins {
-				require.NoError(t, ts.sp.JoinCluster(dbname, join),
+				require.NoError(t, ts.sp.JoinCluster(dbname, join, []byte("meaningless")),
 					"cannot join cluster %s:%s", dbname, join.Name)
 			}
 		}
@@ -297,7 +297,7 @@ func benchmarkNClusterSplits(b *testing.B, numSplits, expectedLoMappings int) {
 			Name:   fmt.Sprintf("c%d", i),
 			Weight: uint32(testShards),
 			Type:   "m3db",
-		}))
+		}, []byte("meaningless")))
 
 		ts.commitLatest()
 	}

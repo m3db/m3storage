@@ -75,12 +75,15 @@ type StoragePlacement interface {
 
 	// JoinCluster adds a new cluster to an existing database and rebalances
 	// shards onto that cluster
-	JoinCluster(db string, c schema.ClusterProperties) error
+	JoinCluster(db string, c schema.ClusterProperties, config []byte) error
 
 	// DecommissionCluster marks a cluster as being decomissioned, moving
 	// its shards to other clusters.  Read traffic will continue to be directed
 	// to this cluster until the max retention period for this database expires
 	DecommissionCluster(db, c string) error
+
+	// UpdateClusterConfig updates the configurtion for a cluster
+	UpdateClusterConfig(db, c string, config []byte) error
 
 	// CommitChanges commits and propagates any unapplied changes
 	CommitChanges(version int, opts CommitOptions) error
@@ -207,7 +210,7 @@ func (sp storagePlacement) AddDatabase(db schema.DatabaseProperties) error {
 	}))
 }
 
-func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties) error {
+func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties, config []byte) error {
 	if c.Name == "" {
 		return errClusterInvalidName
 	}
@@ -244,9 +247,11 @@ func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties
 		sp.log.Infof("joining cluster %s (weight:%d, type:%s) to database %s", c.Name, c.Weight, c.Type, dbName)
 		dbChanges.Joins[c.Name] = &schema.ClusterJoin{
 			Cluster: &schema.Cluster{
-				Properties: &c,
-				Status:     schema.ClusterStatus_ACTIVE,
-				CreatedAt:  xtime.ToUnixMillis(sp.clock.Now()),
+				Properties:    &c,
+				Status:        schema.ClusterStatus_ACTIVE,
+				CreatedAt:     xtime.ToUnixMillis(sp.clock.Now()),
+				LastUpdatedAt: xtime.ToUnixMillis(sp.clock.Now()),
+				Config:        config,
 			},
 		}
 		return nil
@@ -266,19 +271,48 @@ func (sp storagePlacement) DecommissionCluster(dbName, cName string) error {
 				dbChanges.Decomms = make(map[string]*schema.ClusterDecommission)
 			}
 
-			sp.log.Infof("decommissioning cluster %s in database %s", cName, dbName)
+			sp.log.Infof("decommissioning cluster %s:%s", dbName, cName)
 			dbChanges.Decomms[cName] = &schema.ClusterDecommission{
 				ClusterName: cName,
 			}
+			delete(dbChanges.ClusterConfigUpdates, cName) // Delete any pending changes
 			return nil
 		}
 
 		// If this is a pending join, delete from the join list
 		if _, joining := dbChanges.Joins[cName]; joining {
-			sp.log.Infof("removing pending cluster %s from database %s", cName, dbName)
+			sp.log.Infof("removing pending cluster %s:%s", dbName, cName)
 			delete(dbChanges.Joins, cName)
 			return nil
 		}
+		return errClusterNotFound
+	}))
+}
+
+func (sp storagePlacement) UpdateClusterConfig(dbName, cName string, config []byte) error {
+	return sp.mgr.Change(modificationFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
+		db, dbChanges := sp.findDatabase(p, changes, dbName)
+		if db == nil {
+			return errDatabaseNotFound
+		}
+
+		// If this is an existing cluster, add cluster config update
+		if _, existing := db.Clusters[cName]; existing {
+			sp.log.Infof("updating config for existing cluster %s:%s", dbName, cName)
+			if dbChanges.ClusterConfigUpdates == nil {
+				dbChanges.ClusterConfigUpdates = make(map[string][]byte)
+			}
+			dbChanges.ClusterConfigUpdates[cName] = config
+			return nil
+		}
+
+		// If this is a pending join, update it's config in place
+		if joining := dbChanges.Joins[cName]; joining != nil {
+			sp.log.Infof("updating config for pending cluster %s:%s", dbName, cName)
+			joining.Cluster.Config = config
+			return nil
+		}
+
 		return errClusterNotFound
 	}))
 }

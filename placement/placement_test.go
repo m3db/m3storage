@@ -257,7 +257,7 @@ func TestPlacement_JoinClusterInvalid(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		require.Equal(t, test.err, ts.sp.JoinCluster("foo", test.c))
+		require.Equal(t, test.err, ts.sp.JoinCluster("foo", test.c, nil))
 	}
 }
 
@@ -277,7 +277,7 @@ func TestPlacement_JoinClusterOnNewDatabase(t *testing.T) {
 		Name:   "bar",
 		Type:   "m3db",
 		Weight: 256,
-	})
+	}, []byte("my-config"))
 	require.NoError(t, err)
 
 	changes := ts.latestChanges()
@@ -305,8 +305,10 @@ func TestPlacement_JoinClusterOnNewDatabase(t *testing.T) {
 								Type:   "m3db",
 								Weight: 256,
 							},
-							Status:    schema.ClusterStatus_ACTIVE,
-							CreatedAt: xtime.ToUnixMillis(ts.clock.Now()),
+							Status:        schema.ClusterStatus_ACTIVE,
+							CreatedAt:     xtime.ToUnixMillis(ts.clock.Now()),
+							LastUpdatedAt: xtime.ToUnixMillis(ts.clock.Now()),
+							Config:        []byte("my-config"),
 						},
 					},
 				},
@@ -335,7 +337,7 @@ func TestPlacement_JoinClusterOnExistingDatabase(t *testing.T) {
 		Name:   "bar",
 		Type:   "m3db",
 		Weight: 256,
-	})
+	}, []byte("bar-config"))
 	require.NoError(t, err)
 
 	// Make sure we have the right changes
@@ -351,8 +353,10 @@ func TestPlacement_JoinClusterOnExistingDatabase(t *testing.T) {
 								Type:   "m3db",
 								Weight: 256,
 							},
-							Status:    schema.ClusterStatus_ACTIVE,
-							CreatedAt: xtime.ToUnixMillis(ts.clock.Now()),
+							Status:        schema.ClusterStatus_ACTIVE,
+							CreatedAt:     xtime.ToUnixMillis(ts.clock.Now()),
+							LastUpdatedAt: xtime.ToUnixMillis(ts.clock.Now()),
+							Config:        []byte("bar-config"),
 						},
 					},
 				},
@@ -383,7 +387,7 @@ func TestPlacement_JoinClusterConflictsWithExisting(t *testing.T) {
 		Name:   "bar",
 		Type:   "m3db",
 		Weight: 256,
-	})
+	}, []byte("bar-config"))
 	require.Equal(t, errClusterAlreadyExists, err)
 
 	// Shouldn't modify changes
@@ -410,7 +414,7 @@ func TestPlacement_JoinClusterConflictsWithJoining(t *testing.T) {
 		Name:   "bar",
 		Type:   "m3db",
 		Weight: 256,
-	})
+	}, []byte("bar-config"))
 	require.NoError(t, err)
 
 	// Attempting to join again should fail
@@ -418,7 +422,7 @@ func TestPlacement_JoinClusterConflictsWithJoining(t *testing.T) {
 		Name:   "bar",
 		Type:   "m3db",
 		Weight: 256,
-	})
+	}, []byte("bar-config2"))
 	require.Equal(t, errClusterAlreadyExists, err)
 
 	// Should only have the cluster once
@@ -433,8 +437,10 @@ func TestPlacement_JoinClusterConflictsWithJoining(t *testing.T) {
 								Type:   "m3db",
 								Weight: 256,
 							},
-							Status:    schema.ClusterStatus_ACTIVE,
-							CreatedAt: xtime.ToUnixMillis(ts.clock.Now()),
+							Status:        schema.ClusterStatus_ACTIVE,
+							CreatedAt:     xtime.ToUnixMillis(ts.clock.Now()),
+							LastUpdatedAt: xtime.ToUnixMillis(ts.clock.Now()),
+							Config:        []byte("bar-config"),
 						},
 					},
 				},
@@ -451,7 +457,7 @@ func TestPlacement_JoinClusterNonExistentDatabase(t *testing.T) {
 		Name:   "bar",
 		Type:   "m3db",
 		Weight: 256,
-	})
+	}, []byte("bar-config"))
 	require.Equal(t, errDatabaseNotFound, err)
 }
 
@@ -515,7 +521,7 @@ func TestPlacement_DecomissionJoiningCluster(t *testing.T) {
 		Name:   "bar",
 		Type:   "m3db",
 		Weight: 256,
-	})
+	}, []byte("bar-config"))
 	require.NoError(t, err)
 
 	// ...and decommission it
@@ -832,12 +838,12 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 		Name:   "bar",
 		Weight: uint32(testNumShards / 2),
 		Type:   "m3db",
-	}))
+	}, []byte("bar-config")))
 	require.NoError(t, ts.sp.JoinCluster("foo", schema.ClusterProperties{
 		Name:   "zed",
 		Weight: uint32(testNumShards / 2),
 		Type:   "m3db",
-	}))
+	}, []byte("zed-config")))
 
 	createTime := xtime.ToUnixMillis(ts.clock.Now())
 	ts.clock.Add(time.Second * 45)
@@ -869,8 +875,10 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 							Weight: uint32(testNumShards) / 2,
 							Type:   "m3db",
 						},
-						Status:    schema.ClusterStatus_ACTIVE,
-						CreatedAt: createTime,
+						Status:        schema.ClusterStatus_ACTIVE,
+						CreatedAt:     createTime,
+						LastUpdatedAt: createTime,
+						Config:        []byte("bar-config"),
 					},
 					"zed": &schema.Cluster{
 						Properties: &schema.ClusterProperties{
@@ -878,8 +886,10 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 							Weight: uint32(testNumShards) / 2,
 							Type:   "m3db",
 						},
-						Status:    schema.ClusterStatus_ACTIVE,
-						CreatedAt: createTime,
+						Status:        schema.ClusterStatus_ACTIVE,
+						CreatedAt:     createTime,
+						LastUpdatedAt: createTime,
+						Config:        []byte("zed-config"),
 					},
 				},
 				MappingRules: []*schema.ClusterMappingRuleSet{
@@ -927,7 +937,7 @@ func TestPlacement_CommitDecommissionCluster(t *testing.T) {
 		Name:   "c1",
 		Weight: uint32(testNumShards / 2),
 		Type:   "m3db",
-	}))
+	}, []byte("c1-config")))
 
 	ts.clock.Add(time.Minute * 30)
 	c2CreateTime := xtime.ToUnixMillis(ts.clock.Now())
@@ -935,7 +945,7 @@ func TestPlacement_CommitDecommissionCluster(t *testing.T) {
 		Name:   "c2",
 		Weight: uint32(testNumShards / 2),
 		Type:   "m3db",
-	}))
+	}, []byte("c2-config")))
 
 	ts.clock.Add(time.Second * 45)
 
@@ -963,8 +973,10 @@ func TestPlacement_CommitDecommissionCluster(t *testing.T) {
 					Weight: uint32(testNumShards) / 2,
 					Type:   "m3db",
 				},
-				Status:    schema.ClusterStatus_ACTIVE,
-				CreatedAt: c1CreateTime,
+				Status:        schema.ClusterStatus_ACTIVE,
+				CreatedAt:     c1CreateTime,
+				LastUpdatedAt: c1CreateTime,
+				Config:        []byte("c1-config"),
 			},
 			"c2": &schema.Cluster{
 				Properties: &schema.ClusterProperties{
@@ -972,8 +984,10 @@ func TestPlacement_CommitDecommissionCluster(t *testing.T) {
 					Weight: uint32(testNumShards) / 2,
 					Type:   "m3db",
 				},
-				Status:    schema.ClusterStatus_ACTIVE,
-				CreatedAt: c2CreateTime,
+				Status:        schema.ClusterStatus_ACTIVE,
+				CreatedAt:     c2CreateTime,
+				LastUpdatedAt: c2CreateTime,
+				Config:        []byte("c2-config"),
 			},
 		},
 		MappingRules: []*schema.ClusterMappingRuleSet{
@@ -1077,7 +1091,7 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 		Name:   "c1",
 		Weight: uint32(testNumShards / 2),
 		Type:   "m3db",
-	}))
+	}, []byte("c1-config")))
 	require.NoError(t, ts.sp.CommitChanges(ts.latestVersion(), testCommitOpts))
 
 	// Confirm the cluster and shard distribution line up
@@ -1089,8 +1103,10 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 				Type:   "m3db",
 				Weight: uint32(testNumShards / 2),
 			},
-			Status:    schema.ClusterStatus_ACTIVE,
-			CreatedAt: c1CreateTime,
+			Status:        schema.ClusterStatus_ACTIVE,
+			CreatedAt:     c1CreateTime,
+			LastUpdatedAt: c1CreateTime,
+			Config:        []byte("c1-config"),
 		},
 	}
 
@@ -1118,7 +1134,7 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 		Name:   "c2",
 		Weight: uint32(testNumShards / 2),
 		Type:   "m3db",
-	}))
+	}, []byte("c2-config")))
 	require.NoError(t, ts.sp.CommitChanges(ts.latestVersion(), testCommitOpts))
 
 	// Confirm the shards were properly redistributed
@@ -1129,8 +1145,10 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 			Type:   "m3db",
 			Weight: uint32(testNumShards / 2),
 		},
-		Status:    schema.ClusterStatus_ACTIVE,
-		CreatedAt: c2CreateTime,
+		Status:        schema.ClusterStatus_ACTIVE,
+		CreatedAt:     c2CreateTime,
+		LastUpdatedAt: c2CreateTime,
+		Config:        []byte("c2-config"),
 	}
 
 	db.ShardAssignments["c1"] = NewShardSet(2, 3)
@@ -1160,7 +1178,7 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 		Name:   "c3",
 		Weight: uint32(testNumShards / 2),
 		Type:   "m3db",
-	}))
+	}, []byte("c3-config")))
 	require.NoError(t, ts.sp.CommitChanges(ts.latestVersion(), testCommitOpts))
 
 	// Confirm the shards were properly redistributed
@@ -1171,8 +1189,10 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 			Type:   "m3db",
 			Weight: uint32(testNumShards / 2),
 		},
-		Status:    schema.ClusterStatus_ACTIVE,
-		CreatedAt: c3CreateTime,
+		Status:        schema.ClusterStatus_ACTIVE,
+		CreatedAt:     c3CreateTime,
+		LastUpdatedAt: c3CreateTime,
+		Config:        []byte("c3-config"),
 	}
 
 	db.ShardAssignments["c1"] = NewShardSet(2, 3)
@@ -1215,7 +1235,7 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 		Name:   "c1",
 		Weight: uint32(testNumShards / 2),
 		Type:   "m3db",
-	}))
+	}, []byte("c1-config")))
 
 	ts.clock.Add(time.Minute * 30)
 	c2CreateTime := xtime.ToUnixMillis(ts.clock.Now())
@@ -1223,7 +1243,7 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 		Name:   "c2",
 		Weight: uint32(testNumShards / 2),
 		Type:   "m3db",
-	}))
+	}, []byte("c2-config")))
 
 	ts.clock.Add(time.Second * 45)
 
@@ -1251,8 +1271,10 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 					Weight: uint32(testNumShards) / 2,
 					Type:   "m3db",
 				},
-				Status:    schema.ClusterStatus_ACTIVE,
-				CreatedAt: c1CreateTime,
+				Status:        schema.ClusterStatus_ACTIVE,
+				CreatedAt:     c1CreateTime,
+				LastUpdatedAt: c1CreateTime,
+				Config:        []byte("c1-config"),
 			},
 			"c2": &schema.Cluster{
 				Properties: &schema.ClusterProperties{
@@ -1260,8 +1282,10 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 					Weight: uint32(testNumShards) / 2,
 					Type:   "m3db",
 				},
-				Status:    schema.ClusterStatus_ACTIVE,
-				CreatedAt: c2CreateTime,
+				Status:        schema.ClusterStatus_ACTIVE,
+				CreatedAt:     c2CreateTime,
+				LastUpdatedAt: c2CreateTime,
+				Config:        []byte("c2-config"),
 			},
 		},
 		MappingRules: []*schema.ClusterMappingRuleSet{
@@ -1300,7 +1324,7 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 		Name:   "c3",
 		Weight: uint32(testNumShards / 2),
 		Type:   "m3db",
-	}))
+	}, []byte("c3-config")))
 	require.NoError(t, ts.sp.CommitChanges(ts.latestVersion(), testCommitOpts))
 
 	// Should redistribute the load, leaving more shards on the oldest cluster
@@ -1311,8 +1335,10 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 			Weight: uint32(testNumShards / 2),
 			Type:   "m3db",
 		},
-		CreatedAt: c3CreateTime,
-		Status:    schema.ClusterStatus_ACTIVE,
+		Status:        schema.ClusterStatus_ACTIVE,
+		CreatedAt:     c3CreateTime,
+		LastUpdatedAt: c3CreateTime,
+		Config:        []byte("c3-config"),
 	}
 	db.ShardAssignments["c1"] = NewShardSet(0, 1)
 	db.ShardAssignments["c2"] = NewShardSet(3)
@@ -1340,7 +1366,7 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 		Name:   "c4",
 		Weight: uint32(testNumShards / 2),
 		Type:   "m3db",
-	}))
+	}, []byte("c4-config")))
 	require.NoError(t, ts.sp.DecommissionCluster("foo", "c1"))
 	require.NoError(t, ts.sp.CommitChanges(ts.latestVersion(), testCommitOpts))
 
@@ -1352,8 +1378,10 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 			Weight: uint32(testNumShards / 2),
 			Type:   "m3db",
 		},
-		Status:    schema.ClusterStatus_ACTIVE,
-		CreatedAt: c4CreateTime,
+		Status:        schema.ClusterStatus_ACTIVE,
+		CreatedAt:     c4CreateTime,
+		LastUpdatedAt: c4CreateTime,
+		Config:        []byte("c4-config"),
 	}
 	db.Clusters["c1"].Status = schema.ClusterStatus_DECOMMISSIONING
 	db.ShardAssignments["c1"] = NewShardSet()

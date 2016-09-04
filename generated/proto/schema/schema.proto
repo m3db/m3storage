@@ -82,12 +82,15 @@ message Cluster {
 	ClusterProperties properties = 1;
 	ClusterStatus status = 2;
 	int64 created_at = 3;
+	int64 last_updated_at = 4;
+	bytes config = 5;
 }
 
 // DatabaseChanges capture pending changes to the database
 message DatabaseChanges {
 	map<string, ClusterJoin> joins = 1;
 	map<string, ClusterDecommission> decomms = 2;
+	map<string, bytes> cluster_config_updates = 3;
 }
 
 // ClusterJoin captures the data required to join a cluster to a database
@@ -110,9 +113,16 @@ message ShardTransitionRule {
 	int64 cutover_complete_time = 6;
 }
 
+// ClusterConfigUpdateRule indicates that a cluster has had its 
+// configuration changed
+message ClusterConfigUpdateRule {
+	string cluster_name = 1;
+}
+
 // ClusterMappingRuleSet is a set of cluster mapping rules built off a
 // particular version
 message ClusterMappingRuleSet {
 	int32 for_version = 1;
 	repeated ShardTransitionRule shard_transitions = 2;
+	repeated ClusterConfigUpdateRule cluster_config_updates = 3;
 }
