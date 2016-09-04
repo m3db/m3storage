@@ -392,7 +392,8 @@ func benchmarkNClusterSplits(b *testing.B, numSplits, expectedLoMappings int) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		iter, _ := prov.QueryMappings(0, start, end)
-		collectMappings(iter)
+		for iter.Next() {
+		}
 	}
 }
 
