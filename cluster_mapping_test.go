@@ -19,6 +19,7 @@
 package storage
 
 import (
+	"errors"
 	"testing"
 	"time"
 
