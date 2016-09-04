@@ -72,7 +72,7 @@ func (m *mappings) apply(rules *schema.ClusterMappingRuleSet, newClusterVersions
 			m.log.Infof("assigning %d shards to %s", ruleShards.Count(), t.ToCluster)
 			m.active = append(m.active, &activeMappingRule{
 				shards: ruleShards,
-				mappingRule: mappingRule{
+				mappingRule: &mappingRule{
 					database:         m.name,
 					cluster:          t.ToCluster,
 					readCutoverTime:  xtime.FromUnixMillis(t.ReadCutoverTime),
@@ -104,7 +104,7 @@ func (m *mappings) apply(rules *schema.ClusterMappingRuleSet, newClusterVersions
 				shards.Count(), m.name, t.FromCluster, m.name, t.ToCluster)
 			m.active = append(m.active, &activeMappingRule{
 				shards: shards,
-				mappingRule: mappingRule{
+				mappingRule: &mappingRule{
 					database:         m.name,
 					cluster:          t.ToCluster,
 					readCutoverTime:  xtime.FromUnixMillis(t.ReadCutoverTime),
@@ -161,7 +161,7 @@ func (m *mappings) gc() {
 func (m *mappings) findActiveForShard(shard uint) *mappingRule {
 	for _, a := range m.active {
 		if a.shards.Test(shard) {
-			return &a.mappingRule
+			return a.mappingRule
 		}
 	}
 
@@ -220,13 +220,13 @@ func (m mappingRule) clone() *mappingRule {
 
 // activeMappingRule is a currently active cluster mapping rule
 type activeMappingRule struct {
-	mappingRule
+	*mappingRule
 	shards *bitset.BitSet
 }
 
 func (m *activeMappingRule) clone() *activeMappingRule {
 	return &activeMappingRule{
-		mappingRule: *m.mappingRule.clone(),
+		mappingRule: m.mappingRule.clone(),
 		shards:      m.shards.Clone(),
 	}
 }
