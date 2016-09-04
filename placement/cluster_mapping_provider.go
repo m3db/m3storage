@@ -260,7 +260,7 @@ func (dbm *databaseMappings) clone() *databaseMappings {
 // update updates the database with new mapping information
 func (dbm *databaseMappings) update(db *schema.Database) error {
 	// Short circuit if we are already at the proper version
-	if dbm.version == db.Version {
+	if dbm.version >= db.Version {
 		return nil
 	}
 
