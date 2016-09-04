@@ -31,7 +31,8 @@ var (
 	errInvalidTransition = errors.New("invalid shard transition")
 )
 
-// database are the mappings for a given database.
+// database is the runtime representation of a database, managing the mappings
+// and clusters making up that database
 type database struct {
 	sync.RWMutex
 	name               string
