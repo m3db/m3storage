@@ -32,12 +32,14 @@ type ClusterMappingProvider interface {
 	xclose.Closer
 
 	// QueryMappings returns the active cluster mappings for the given query
-	QueryMappings(shard uint32, start, end time.Time) ClusterMappingIter
+	QueryMappings(shard uint32, start, end time.Time) (ClusterMappingIter, error)
 }
 
 // ClusterMappingIter is an iterator over ClusterMappings.  Allows provider to
 // control how these are stored internally
 type ClusterMappingIter interface {
+	xclose.Closer
+
 	// Next moves to the next mapping, returning false if there are no more
 	// mappings
 	Next() bool
@@ -49,8 +51,11 @@ type ClusterMappingIter interface {
 // A ClusterMapping defines which cluster holds the datapoints within a given
 // timeframe
 type ClusterMapping interface {
-	// Cluster is the cluster that is targeted by this mapping
+	// Cluster is the name of the cluster that is targeted by this mapping
 	Cluster() string
+
+	// Database is the name of the database that is targeted by this mapping
+	Database() string
 
 	// CutoffTime defines the time that reads from Cluster should stop.  Will
 	// inherently fall after the WriteCutoverTime, to account for configuration
@@ -82,16 +87,20 @@ func newClusterQueryPlanner(provider ClusterMappingProvider, clock clock.Clock, 
 	}
 }
 
-// buildClusterQueryPlan takes a set of queries and returns the set of clusters
-// that need to be queries, along with the time range for each query.  Assumes
-// the mapping rules are sorted by cutoff time, with the most recently applied
-// rule appearing first.
+// buildClusterQueryPlan takes a query and returns the set of clusters that
+// need to be queried along with the time range for each query.  Assumes the
+// mapping rules are sorted by cutoff time, with the most recently applied rule
+// appearing first.
 func (p *clusterQueryPlanner) buildClusterQueryPlan(shard uint32, queries []query) ([]clusterQuery, error) {
 	cqueries := make([]clusterQuery, 0, len(queries))
 	for _, q := range queries {
 		// Find the mappings for the query retention period
 		// TODO(mmihic): and resolution?
-		mappings := p.p.QueryMappings(shard, q.Range.Start, q.Range.End)
+		mappings, err := p.p.QueryMappings(shard, q.Range.Start, q.Range.End)
+		if err != nil {
+			return nil, err
+		}
+
 		if mappings == nil {
 			// No mappings for this retention policy, skip it
 			continue
@@ -143,6 +152,11 @@ func (p *clusterQueryPlanner) buildClusterQueryPlan(shard uint32, queries []quer
 			}
 
 			cqueries = append(cqueries, cq)
+		}
+
+		// Close the iterator
+		if err := mappings.Close(); err != nil {
+			return nil, err
 		}
 	}
 

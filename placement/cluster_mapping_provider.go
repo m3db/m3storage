@@ -106,21 +106,21 @@ func NewClusterMappingProvider(
 
 // QueryMappings returns the mappings for a given shard and retention policy
 func (mp *clusterMappingProvider) QueryMappings(
-	shard uint32, start, end time.Time) storage.ClusterMappingIter {
-
+	shard uint32, start, end time.Time) (storage.ClusterMappingIter, error) {
 	// Figure out how far back this query goes
 	queryAgeInSecs := int32(mp.clock.Now().Sub(end) / time.Second)
 
 	// Figure out which database mapping to use given the age of the datapoints being queried
 	dbm := mp.findDatabaseMappings(queryAgeInSecs)
 	if dbm == nil {
-		return emptyClusterMappingIter{}
+		// No database mappings - return an empty iterator
+		return &clusterMappingIter{}, nil
 	}
 
 	// Figure out which active mapping contains that shard
 	return &clusterMappingIter{
 		prior: dbm.findActiveForShard(uint(shard)),
-	}
+	}, nil
 }
 
 // Close closes the provider and stops watching for placement changes
@@ -294,6 +294,7 @@ func (dbm *databaseMappings) applyRules(rules *schema.ClusterMappingRuleSet) err
 			dbm.active = append(dbm.active, &activeClusterMapping{
 				shards: ruleShards,
 				clusterMapping: clusterMapping{
+					database:         dbm.name,
 					cluster:          t.ToCluster,
 					readCutoverTime:  xtime.FromUnixMillis(t.ReadCutoverTime),
 					writeCutoverTime: xtime.FromUnixMillis(t.WriteCutoverTime),
@@ -324,10 +325,12 @@ func (dbm *databaseMappings) applyRules(rules *schema.ClusterMappingRuleSet) err
 			dbm.active = append(dbm.active, &activeClusterMapping{
 				shards: shards,
 				clusterMapping: clusterMapping{
+					database:         dbm.name,
 					cluster:          t.ToCluster,
 					readCutoverTime:  xtime.FromUnixMillis(t.ReadCutoverTime),
 					writeCutoverTime: xtime.FromUnixMillis(t.WriteCutoverTime),
 					prior: &clusterMapping{
+						database:         a.database,
 						cluster:          a.cluster,
 						readCutoverTime:  a.readCutoverTime,
 						writeCutoverTime: a.writeCutoverTime,
@@ -379,17 +382,12 @@ func (dbm *databaseMappings) findActiveForShard(shard uint) *clusterMapping {
 	return nil
 }
 
-// emptyClusterMappingIter is an empty iterator over cluster mappings
-type emptyClusterMappingIter struct{}
-
-func (iter emptyClusterMappingIter) Next() bool                      { return false }
-func (iter emptyClusterMappingIter) Current() storage.ClusterMapping { return nil }
-
 // clusterMappingIter is a shard specific iterator over cluster mappings
 type clusterMappingIter struct {
 	current, prior *clusterMapping
 }
 
+// Next advances the iterator, returning true if there is another mapping
 func (iter *clusterMappingIter) Next() bool {
 	if iter.prior == nil {
 		return false
@@ -399,21 +397,25 @@ func (iter *clusterMappingIter) Next() bool {
 	return true
 }
 
+// Current returns the current mapping
 func (iter *clusterMappingIter) Current() storage.ClusterMapping { return iter.current }
+
+// Close closes the iterator
+func (iter *clusterMappingIter) Close() error { return nil }
 
 // clusterMapping is a cluster mapping, duh
 type clusterMapping struct {
-	cluster          string
-	readCutoverTime  time.Time
-	writeCutoverTime time.Time
-	cutoffTime       time.Time
-	prior            *clusterMapping
+	database, cluster                             string
+	readCutoverTime, writeCutoverTime, cutoffTime time.Time
+	prior                                         *clusterMapping
 }
 
+func (m clusterMapping) Database() string            { return m.database }
 func (m clusterMapping) Cluster() string             { return m.cluster }
 func (m clusterMapping) ReadCutoverTime() time.Time  { return m.readCutoverTime }
 func (m clusterMapping) WriteCutoverTime() time.Time { return m.writeCutoverTime }
 func (m clusterMapping) CutoffTime() time.Time       { return m.cutoffTime }
+
 func (m clusterMapping) clone() *clusterMapping {
 	var prior *clusterMapping
 	if m.prior != nil {
@@ -421,6 +423,7 @@ func (m clusterMapping) clone() *clusterMapping {
 	}
 
 	return &clusterMapping{
+		database:         m.database,
 		cluster:          m.cluster,
 		readCutoverTime:  m.readCutoverTime,
 		writeCutoverTime: m.writeCutoverTime,
