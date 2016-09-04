@@ -24,72 +24,42 @@ import (
 	"github.com/golang/protobuf/proto"
 )
 
-// A VersionedConfig is a versioned chunk of configuration
-type VersionedConfig interface {
+// A Config is configuration for a cluster
+type Config interface {
 	// Version is the version of the configuration
 	Version() int
 
-	// Data unmarshals the actual data into the given value
-	Data(v proto.Message) error
-}
-
-// NewVersionedConfig creates a new versioned configuration
-func NewVersionedConfig(version int, data []byte) VersionedConfig {
-	return versionedConfig{
-		version: version,
-		data:    data,
-	}
+	// Unmarshal unmarshals the configuration
+	Unmarshal(c proto.Message) error
 }
 
 // A Type defines a type of storage (m3db, hbase, etc)
 type Type interface {
-	// Name is the name of the storage class
+	// Name is the name of the storage type
 	Name() string
-	SetName(s string) Type
 }
 
 // A Database holds datapoints up to a certain amount of time
 type Database interface {
+	// Name is the name of the database
 	Name() string
+
+	// MaxRetention is the maximum amount of type datapoints will be retained in
+	// this database
 	MaxRetention() time.Duration
 }
 
-// A Cluster defines a cluster
+// A Cluster defines a cluster of nodes within a database
 type Cluster interface {
-	Name() string            // the name of the cluster
-	Type() Type              // the cluster's storage type
-	Config() VersionedConfig // the cluster's configuration
-	Database() string        // the database to which the cluster belongs
-}
+	// Name is the name of the cluster
+	Name() string
 
-// NewCluster returns a new Cluster with the given name, storage type, and config
-func NewCluster(name string, typ Type, db string, config VersionedConfig) Cluster {
-	return cluster{
-		name:   name,
-		typ:    typ,
-		config: config,
-		db:     db,
-	}
-}
+	// Type is the storage type for the cluster
+	Type() Type
 
-type cluster struct {
-	name   string
-	typ    Type
-	config VersionedConfig
-	db     string
-}
+	// Config is the cluster's configuration
+	Config() Config
 
-func (c cluster) Name() string            { return c.name }
-func (c cluster) Type() Type              { return c.typ }
-func (c cluster) Config() VersionedConfig { return c.config }
-func (c cluster) Database() string        { return c.db }
-
-type versionedConfig struct {
-	version int
-	data    []byte
-}
-
-func (c versionedConfig) Version() int { return c.version }
-func (c versionedConfig) Data(v proto.Message) error {
-	return proto.Unmarshal(c.data, v)
+	// Database is the name of the database to which the cluster belongs
+	Database() string
 }
