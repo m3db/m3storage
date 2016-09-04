@@ -24,13 +24,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/facebookgo/clock"
-	"github.com/golang/protobuf/proto"
 	"github.com/m3db/m3cluster/changeset"
 	"github.com/m3db/m3cluster/kv"
 	"github.com/m3db/m3storage/generated/proto/schema"
 	"github.com/m3db/m3x/log"
 	"github.com/m3db/m3x/time"
+
+	"github.com/facebookgo/clock"
+	"github.com/golang/protobuf/proto"
+	"github.com/willf/bitset"
 )
 
 var (
@@ -46,6 +48,8 @@ var (
 	errClusterInvalidName                = errors.New("cluster name cannot be empty")
 	errClusterInvalidWeight              = errors.New("cluster weight cannot be <= 0")
 	errClusterInvalidType                = errors.New("cluster type cannot be empty")
+
+	errShardsAbandoned = errors.New("shards abandoned")
 )
 
 // CommitOptions are options for performing a commit
@@ -194,7 +198,7 @@ func (sp storagePlacement) AddDatabase(db schema.DatabaseProperties) error {
 				CreatedAt:        xtime.ToUnixMillis(now),
 				LastUpdatedAt:    xtime.ToUnixMillis(now),
 				Clusters:         make(map[string]*schema.Cluster),
-				ShardAssignments: make(map[string]*schema.ClusterShardAssignment),
+				ShardAssignments: make(map[string]*schema.ShardSet),
 			},
 		}
 
@@ -369,9 +373,9 @@ func (sp storagePlacement) commitDatabaseChanges(
 
 	sp.log.Infof("processing changes to database %s", db.Properties.Name)
 	var (
-		unowned       []uint32
-		shardCutoffs  = make(map[string][]uint32)
-		shardCutovers = make(map[string][]uint32)
+		unowned       bitset.BitSet
+		shardCutoffs  = make(map[string]*bitset.BitSet)
+		shardCutovers = make(map[string]*bitset.BitSet)
 	)
 
 	initialClusters := db.Clusters == nil
@@ -379,37 +383,37 @@ func (sp storagePlacement) commitDatabaseChanges(
 		db.Clusters = make(map[string]*schema.Cluster)
 
 		// Every shard is unowned
-		unowned = make([]uint32, 0, int(db.Properties.NumShards))
-		for n := uint32(0); n < uint32(db.Properties.NumShards); n++ {
-			unowned = append(unowned, n)
+		for n := uint(0); n < uint(db.Properties.NumShards); n++ {
+			unowned.Set(n)
 		}
 	}
 
 	if db.ShardAssignments == nil {
-		db.ShardAssignments = make(map[string]*schema.ClusterShardAssignment)
+		db.ShardAssignments = make(map[string]*schema.ShardSet)
 	}
 
 	// Add all joining cluster to the set of active clusters
 	for name, join := range changes.Joins {
 		sp.log.Infof("joining cluster %s:%s", db.Properties.Name, name)
 		db.Clusters[name] = join.Cluster
-		db.ShardAssignments[name] = &schema.ClusterShardAssignment{}
+		db.ShardAssignments[name] = &schema.ShardSet{}
 	}
 
-	// Go through all decomissioned clusters, remove them from the active
-	// clusters list, and add their shards to an "unowned" pool
+	// Mark	all decomissioned clusters as such, and return their shards to the
+	// unowned pool for redistribution
 	for name := range changes.Decomms {
 		sp.log.Infof("decommissioning cluster %s:%s", db.Properties.Name, name)
-		db.Clusters[name].Status = schema.ClusterStatus_DECOMMISSIONING
 
+		db.Clusters[name].Status = schema.ClusterStatus_DECOMMISSIONING
 		shards := db.ShardAssignments[name]
 		if shards == nil {
 			continue
 		}
 
-		unowned = append(unowned, shards.Shards...)
-		shardCutoffs[name] = append(shardCutoffs[name], shards.Shards...)
-		db.ShardAssignments[name].Shards = nil
+		assigned := bitset.From(shards.Bits)
+		shardCutoffs[name] = assigned
+		unowned.InPlaceUnion(assigned)
+		db.ShardAssignments[name].Bits = nil
 	}
 
 	// Compute active clusters, sorting the names so that assignments are deterministic (for testing)
@@ -432,90 +436,130 @@ func (sp storagePlacement) commitDatabaseChanges(
 	desiredNumShards := sp.computeDesiredNumShards(activeClusters, int(db.Properties.NumShards))
 	for _, name := range activeClusterNames {
 		var (
-			desired  = desiredNumShards[name]
-			assigned = db.ShardAssignments[name]
-			removed  []uint32
+			desired     = desiredNumShards[name]
+			assigned    = bitset.From(db.ShardAssignments[name].Bits)
+			numAssigned = int(assigned.Count())
 		)
 
-		if desired >= len(assigned.Shards) {
+		if desired >= numAssigned {
 			continue // Will acquire more shards in pass 2
 		}
 
-		numToRemove := len(assigned.Shards) - desired
+		numToRemove := numAssigned - desired
 		sp.log.Infof("%s:%s wants %d shards, has %d shards, returning %d",
-			db.Properties.Name, name, desired, len(assigned.Shards), numToRemove)
-		removed, assigned.Shards = assigned.Shards[:numToRemove], assigned.Shards[numToRemove:]
-		unowned = append(unowned, removed...)
-		shardCutoffs[name] = append(shardCutoffs[name], removed...)
-	}
+			db.Properties.Name, name, desired, numAssigned, numToRemove)
 
-	// Sort the unowned shards so that assignments are deterministic (for
-	// testing)
-	sort.Sort(shardsInOrder(unowned))
+		removed := bitset.New(uint(db.Properties.NumShards))
+		for i, e := assigned.NextSet(0); e && numToRemove > 0; i, e = assigned.NextSet(i + 1) {
+			removed.Set(i)
+			numToRemove--
+		}
+
+		assigned.InPlaceDifference(removed)
+		unowned.InPlaceUnion(removed)
+		shardCutoffs[name] = removed
+		db.ShardAssignments[name].Bits = assigned.Bytes()
+
+		sp.log.Infof("%s:%s now owns %d shards", db.Properties.Name, name, assigned.Count())
+	}
 
 	// pass 2, assign shards from the "unowned" pool to underweight clusters
 	for _, name := range activeClusterNames {
 		var (
-			desired  = desiredNumShards[name]
-			assigned = db.ShardAssignments[name]
-			added    []uint32
+			desired     = desiredNumShards[name]
+			assigned    = bitset.From(db.ShardAssignments[name].Bits)
+			numAssigned = int(assigned.Count())
 		)
 
-		if desired <= len(assigned.Shards) {
+		if desired <= numAssigned {
 			continue // NB(mmihic): Should never be less at this point
 		}
 
 		// TODO(mmihic): Maybe validate that the numToAdd is >= the number remaining
-		numToAdd := desired - len(assigned.Shards)
+		numToAdd := desired - numAssigned
 		sp.log.Infof("%s:%s wants %d shards, has %d shards, pulling %d shards from %d unowned",
-			db.Properties.Name, name, desired, len(assigned.Shards), numToAdd, len(unowned))
-		added, unowned = unowned[:numToAdd], unowned[numToAdd:]
-		shardCutovers[name] = append(shardCutovers[name], added...)
-		assigned.Shards = append(assigned.Shards, added...)
+			db.Properties.Name, name, desired, numAssigned, numToAdd, unowned.Count())
 
-		// Sort the shards so if we unassign later, the results will be deterministic
-		sort.Sort(shardsInOrder(assigned.Shards))
+		added := bitset.New(uint(db.Properties.NumShards))
+		for i, e := unowned.NextSet(0); e && numToAdd > 0; i, e = unowned.NextSet(i + 1) {
+			added.Set(i)
+			numToAdd--
+		}
+
+		assigned.InPlaceUnion(added)
+		unowned.InPlaceDifference(added)
+		db.ShardAssignments[name].Bits = assigned.Bytes()
+		shardCutovers[name] = added
+
+		sp.log.Infof("%s:%s now owns %d shards", db.Properties.Name, name, assigned.Count())
 	}
 
-	// now build out all of the rules
+	// now build out all of the rules.
 	db.Version++
 	rules := &schema.ClusterMappingRuleSet{
 		ForVersion: db.Version,
 	}
 
 	var (
-		readCutoverTime  = sp.clock.Now()
-		writeCutoverTime = readCutoverTime.Add(opts.GetRolloutDelay())
-		cutoffTime       = writeCutoverTime.Add(opts.GetTransitionDelay())
+		readCutoverTime     = sp.clock.Now()
+		writeCutoverTime    = readCutoverTime.Add(opts.GetRolloutDelay())
+		cutoverCompleteTime = writeCutoverTime.Add(opts.GetTransitionDelay())
 	)
 
-	for name, shards := range shardCutovers {
-		sp.log.Infof("shifting %d shards onto %s:%s at (reads starting @ %v, writes starting @ %v)",
-			len(shards), db.Properties.Name, name, readCutoverTime, writeCutoverTime)
+	// Compute transitions
+	for to, cutoverShards := range shardCutovers {
+		for from, cutoffShards := range shardCutoffs {
+			shards := cutoffShards.Intersection(cutoverShards)
+			if shards.None() {
+				continue
+			}
 
-		rules.Cutovers = append(rules.Cutovers, &schema.CutoverRule{
-			ClusterName:      name,
-			Shards:           shards,
-			ReadCutoverTime:  xtime.ToUnixMillis(readCutoverTime),
-			WriteCutoverTime: xtime.ToUnixMillis(writeCutoverTime),
-		})
+			sp.log.Infof("shifting %d shards from %s:%s to %s:%s (reads starting @ %v, writes starting @ %v)",
+				shards.Count(), db.Properties.Name, from, db.Properties.Name, to, readCutoverTime, writeCutoverTime)
+
+			rules.ShardTransitions = append(rules.ShardTransitions, &schema.ShardTransitionRule{
+				FromCluster:         from,
+				ToCluster:           to,
+				Shards:              &schema.ShardSet{Bits: shards.Bytes()},
+				ReadCutoverTime:     xtime.ToUnixMillis(readCutoverTime),
+				WriteCutoverTime:    xtime.ToUnixMillis(writeCutoverTime),
+				CutoverCompleteTime: xtime.ToUnixMillis(cutoverCompleteTime),
+			})
+
+			cutoverShards.InPlaceDifference(shards)
+			cutoffShards.InPlaceDifference(shards)
+
+			if cutoverShards.None() {
+				// All transitions out of this shard have been processed
+				break
+			}
+		}
+
+		// If there are shards still outstanding, create an initial rule
+		if cutoverShards.Any() {
+			sp.log.Infof("assigning %d initial shards to %s:%s (reads starting @ %v, writes starting @ %v)",
+				cutoverShards.Count(), db.Properties.Name, to, readCutoverTime, writeCutoverTime)
+
+			rules.ShardTransitions = append(rules.ShardTransitions, &schema.ShardTransitionRule{
+				ToCluster:        to,
+				Shards:           &schema.ShardSet{Bits: cutoverShards.Bytes()},
+				ReadCutoverTime:  xtime.ToUnixMillis(readCutoverTime),
+				WriteCutoverTime: xtime.ToUnixMillis(writeCutoverTime),
+			})
+		}
 	}
 
-	for name, shards := range shardCutoffs {
-		sp.log.Infof("shifting %d shards off %s:%s (reads stopping @ %v)",
-			len(shards), db.Properties.Name, name, cutoffTime)
-
-		rules.Cutoffs = append(rules.Cutoffs, &schema.CutoffRule{
-			ClusterName: name,
-			Shards:      shards,
-			CutoffTime:  xtime.ToUnixMillis(cutoffTime),
-		})
-
+	// We've processed all transitions, so make sure there are no shards with no place to go...
+	for cutoffName, cutoffShards := range shardCutoffs {
+		if cutoffShards.Any() {
+			sp.log.Infof("%d shards moved off %s:%s with no place to go",
+				cutoffShards.Count(), db.Properties.Name, cutoffName)
+			return errShardsAbandoned
+		}
 	}
 
-	// Sort rules by cluster name so that they have a deterministic ordering...
-	sort.Sort(cutoffsByCluster(rules.Cutoffs))
-	sort.Sort(cutoversByCluster(rules.Cutovers))
+	// ...sort the transitions so they have a deterministic ordering...
+	sort.Sort(shardTransitionsByCluster(rules.ShardTransitions))
 
 	// ...and add to the list of mappings for the database
 	db.MappingRules = append(db.MappingRules, rules)
@@ -673,20 +717,32 @@ func (dbs databasesByRetention) Less(i, j int) bool {
 	return dbs[i].Properties.MaxRetentionInSecs < dbs[j].Properties.MaxRetentionInSecs
 }
 
-// sort.Interface for CutoffRule by cluster name
-type cutoffsByCluster []*schema.CutoffRule
+// sort.Interface for ShardTransitionRule by to cluster name
+type shardTransitionsByCluster []*schema.ShardTransitionRule
 
-func (c cutoffsByCluster) Len() int      { return len(c) }
-func (c cutoffsByCluster) Swap(i, j int) { c[i], c[j] = c[j], c[i] }
-func (c cutoffsByCluster) Less(i, j int) bool {
-	return strings.Compare(c[i].ClusterName, c[j].ClusterName) < 0
+func (c shardTransitionsByCluster) Len() int      { return len(c) }
+func (c shardTransitionsByCluster) Swap(i, j int) { c[i], c[j] = c[j], c[i] }
+func (c shardTransitionsByCluster) Less(i, j int) bool {
+	toOrder := strings.Compare(c[i].ToCluster, c[j].ToCluster)
+	if toOrder < 0 {
+		return true
+	}
+
+	if toOrder > 0 {
+		return false
+	}
+
+	return strings.Compare(c[i].FromCluster, c[j].FromCluster) < 0
 }
 
-// sort.Interface for CutoverRule by cluster name
-type cutoversByCluster []*schema.CutoverRule
+// NewShardSet returns a new shard set initialized with a list of shards
+func NewShardSet(toSet ...uint) *schema.ShardSet {
+	var b bitset.BitSet
+	for _, n := range toSet {
+		b.Set(n)
+	}
 
-func (c cutoversByCluster) Len() int      { return len(c) }
-func (c cutoversByCluster) Swap(i, j int) { c[i], c[j] = c[j], c[i] }
-func (c cutoversByCluster) Less(i, j int) bool {
-	return strings.Compare(c[i].ClusterName, c[j].ClusterName) < 0
+	return &schema.ShardSet{
+		Bits: b.Bytes(),
+	}
 }

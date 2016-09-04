@@ -14,14 +14,13 @@ It has these top-level messages:
 	DatabaseAdd
 	DatabaseProperties
 	Database
-	ClusterShardAssignment
+	ShardSet
 	ClusterProperties
 	Cluster
 	DatabaseChanges
 	ClusterJoin
 	ClusterDecommission
-	CutoverRule
-	CutoffRule
+	ShardTransitionRule
 	ClusterMappingRuleSet
 */
 package schema
@@ -124,17 +123,17 @@ func (*DatabaseProperties) ProtoMessage()    {}
 
 // Database defines a single database
 type Database struct {
-	Properties          *DatabaseProperties                `protobuf:"bytes,1,opt,name=properties" json:"properties,omitempty"`
-	CreatedAt           int64                              `protobuf:"varint,2,opt,name=created_at" json:"created_at,omitempty"`
-	LastUpdatedAt       int64                              `protobuf:"varint,3,opt,name=last_updated_at" json:"last_updated_at,omitempty"`
-	DecommissionedAt    int64                              `protobuf:"varint,4,opt,name=decommissioned_at" json:"decommissioned_at,omitempty"`
-	ReadCutoverTime     int64                              `protobuf:"varint,5,opt,name=read_cutover_time" json:"read_cutover_time,omitempty"`
-	WriteCutoverTime    int64                              `protobuf:"varint,6,opt,name=write_cutover_time" json:"write_cutover_time,omitempty"`
-	CutoverCompleteTime int64                              `protobuf:"varint,7,opt,name=cutover_complete_time" json:"cutover_complete_time,omitempty"`
-	Clusters            map[string]*Cluster                `protobuf:"bytes,8,rep,name=clusters" json:"clusters,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	ShardAssignments    map[string]*ClusterShardAssignment `protobuf:"bytes,9,rep,name=shard_assignments" json:"shard_assignments,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Version             int32                              `protobuf:"varint,10,opt,name=version" json:"version,omitempty"`
-	MappingRules        []*ClusterMappingRuleSet           `protobuf:"bytes,11,rep,name=mapping_rules" json:"mapping_rules,omitempty"`
+	Properties          *DatabaseProperties      `protobuf:"bytes,1,opt,name=properties" json:"properties,omitempty"`
+	CreatedAt           int64                    `protobuf:"varint,2,opt,name=created_at" json:"created_at,omitempty"`
+	LastUpdatedAt       int64                    `protobuf:"varint,3,opt,name=last_updated_at" json:"last_updated_at,omitempty"`
+	DecommissionedAt    int64                    `protobuf:"varint,4,opt,name=decommissioned_at" json:"decommissioned_at,omitempty"`
+	ReadCutoverTime     int64                    `protobuf:"varint,5,opt,name=read_cutover_time" json:"read_cutover_time,omitempty"`
+	WriteCutoverTime    int64                    `protobuf:"varint,6,opt,name=write_cutover_time" json:"write_cutover_time,omitempty"`
+	CutoverCompleteTime int64                    `protobuf:"varint,7,opt,name=cutover_complete_time" json:"cutover_complete_time,omitempty"`
+	Clusters            map[string]*Cluster      `protobuf:"bytes,8,rep,name=clusters" json:"clusters,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	ShardAssignments    map[string]*ShardSet     `protobuf:"bytes,9,rep,name=shard_assignments" json:"shard_assignments,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Version             int32                    `protobuf:"varint,10,opt,name=version" json:"version,omitempty"`
+	MappingRules        []*ClusterMappingRuleSet `protobuf:"bytes,11,rep,name=mapping_rules" json:"mapping_rules,omitempty"`
 }
 
 func (m *Database) Reset()         { *m = Database{} }
@@ -155,7 +154,7 @@ func (m *Database) GetClusters() map[string]*Cluster {
 	return nil
 }
 
-func (m *Database) GetShardAssignments() map[string]*ClusterShardAssignment {
+func (m *Database) GetShardAssignments() map[string]*ShardSet {
 	if m != nil {
 		return m.ShardAssignments
 	}
@@ -169,14 +168,14 @@ func (m *Database) GetMappingRules() []*ClusterMappingRuleSet {
 	return nil
 }
 
-// ClusterShardAssignment captures the shards currently assigned to a cluster
-type ClusterShardAssignment struct {
-	Shards []uint32 `protobuf:"varint,1,rep,name=shards" json:"shards,omitempty"`
+// ShardSet is a bitset of shards
+type ShardSet struct {
+	Bits []uint64 `protobuf:"varint,1,rep,name=bits" json:"bits,omitempty"`
 }
 
-func (m *ClusterShardAssignment) Reset()         { *m = ClusterShardAssignment{} }
-func (m *ClusterShardAssignment) String() string { return proto.CompactTextString(m) }
-func (*ClusterShardAssignment) ProtoMessage()    {}
+func (m *ShardSet) Reset()         { *m = ShardSet{} }
+func (m *ShardSet) String() string { return proto.CompactTextString(m) }
+func (*ShardSet) ProtoMessage()    {}
 
 // ClusterProperties are the user specifiable properties for a Cluster
 type ClusterProperties struct {
@@ -256,52 +255,41 @@ func (m *ClusterDecommission) Reset()         { *m = ClusterDecommission{} }
 func (m *ClusterDecommission) String() string { return proto.CompactTextString(m) }
 func (*ClusterDecommission) ProtoMessage()    {}
 
-// CutoverRule is a rule transition shards onto a given cluster
-type CutoverRule struct {
-	ClusterName      string   `protobuf:"bytes,1,opt,name=cluster_name" json:"cluster_name,omitempty"`
-	Shards           []uint32 `protobuf:"varint,2,rep,name=shards" json:"shards,omitempty"`
-	ReadCutoverTime  int64    `protobuf:"varint,3,opt,name=read_cutover_time" json:"read_cutover_time,omitempty"`
-	WriteCutoverTime int64    `protobuf:"varint,4,opt,name=write_cutover_time" json:"write_cutover_time,omitempty"`
+// ShardTransitionRule transitions shards from one cluster to another
+type ShardTransitionRule struct {
+	FromCluster         string    `protobuf:"bytes,1,opt,name=from_cluster" json:"from_cluster,omitempty"`
+	ToCluster           string    `protobuf:"bytes,2,opt,name=to_cluster" json:"to_cluster,omitempty"`
+	Shards              *ShardSet `protobuf:"bytes,3,opt,name=shards" json:"shards,omitempty"`
+	ReadCutoverTime     int64     `protobuf:"varint,4,opt,name=read_cutover_time" json:"read_cutover_time,omitempty"`
+	WriteCutoverTime    int64     `protobuf:"varint,5,opt,name=write_cutover_time" json:"write_cutover_time,omitempty"`
+	CutoverCompleteTime int64     `protobuf:"varint,6,opt,name=cutover_complete_time" json:"cutover_complete_time,omitempty"`
 }
 
-func (m *CutoverRule) Reset()         { *m = CutoverRule{} }
-func (m *CutoverRule) String() string { return proto.CompactTextString(m) }
-func (*CutoverRule) ProtoMessage()    {}
+func (m *ShardTransitionRule) Reset()         { *m = ShardTransitionRule{} }
+func (m *ShardTransitionRule) String() string { return proto.CompactTextString(m) }
+func (*ShardTransitionRule) ProtoMessage()    {}
 
-// CutoffRule is a rule tranistioning shards off a given
-// cluster
-type CutoffRule struct {
-	ClusterName string   `protobuf:"bytes,1,opt,name=cluster_name" json:"cluster_name,omitempty"`
-	Shards      []uint32 `protobuf:"varint,2,rep,name=shards" json:"shards,omitempty"`
-	CutoffTime  int64    `protobuf:"varint,3,opt,name=cutoff_time" json:"cutoff_time,omitempty"`
+func (m *ShardTransitionRule) GetShards() *ShardSet {
+	if m != nil {
+		return m.Shards
+	}
+	return nil
 }
-
-func (m *CutoffRule) Reset()         { *m = CutoffRule{} }
-func (m *CutoffRule) String() string { return proto.CompactTextString(m) }
-func (*CutoffRule) ProtoMessage()    {}
 
 // ClusterMappingRuleSet is a set of cluster mapping rules built off a
 // particular version
 type ClusterMappingRuleSet struct {
-	ForVersion int32          `protobuf:"varint,1,opt,name=for_version" json:"for_version,omitempty"`
-	Cutovers   []*CutoverRule `protobuf:"bytes,2,rep,name=cutovers" json:"cutovers,omitempty"`
-	Cutoffs    []*CutoffRule  `protobuf:"bytes,3,rep,name=cutoffs" json:"cutoffs,omitempty"`
+	ForVersion       int32                  `protobuf:"varint,1,opt,name=for_version" json:"for_version,omitempty"`
+	ShardTransitions []*ShardTransitionRule `protobuf:"bytes,2,rep,name=shard_transitions" json:"shard_transitions,omitempty"`
 }
 
 func (m *ClusterMappingRuleSet) Reset()         { *m = ClusterMappingRuleSet{} }
 func (m *ClusterMappingRuleSet) String() string { return proto.CompactTextString(m) }
 func (*ClusterMappingRuleSet) ProtoMessage()    {}
 
-func (m *ClusterMappingRuleSet) GetCutovers() []*CutoverRule {
+func (m *ClusterMappingRuleSet) GetShardTransitions() []*ShardTransitionRule {
 	if m != nil {
-		return m.Cutovers
-	}
-	return nil
-}
-
-func (m *ClusterMappingRuleSet) GetCutoffs() []*CutoffRule {
-	if m != nil {
-		return m.Cutoffs
+		return m.ShardTransitions
 	}
 	return nil
 }

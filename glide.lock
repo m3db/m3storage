@@ -1,5 +1,5 @@
-hash: d33e0758827a64fc016979f7ef7f1644845b340676bcb73c25e3634e6fc90e81
-updated: 2016-08-29T15:57:42.805854016-04:00
+hash: 0e125e32405c080c7c9886e2332745644f904ad0ff1766c243abf40e38645c07
+updated: 2016-09-01T14:26:22.90988474-04:00
 imports:
 - name: github.com/facebookgo/clock
   version: 600d898af40aa09a7a93ecb9265d87b0504b6f03
@@ -13,20 +13,23 @@ imports:
   - proto
   - protoc-gen-go
 - name: github.com/m3db/m3cluster
-  version: 02b94194df628671934b089f58f769a19aafde5e
+  version: 4f49de9fa91d2aa5670e72bb67590d81b7c61d5f
   subpackages:
   - changeset
   - kv
   - generated/proto/changesetpb
 - name: github.com/m3db/m3x
-  version: da17cb1b00de697d7c9a422da70e0cf1f2246340
+  version: e619ed7a93221fde8a88754168de1a70c78484cb
   subpackages:
   - close
   - log
   - time
+  - watch
 - name: github.com/stretchr/testify
   version: d77da356e56a7428ad25149ca77381849a6a5232
   subpackages:
   - assert
   - require
+- name: github.com/willf/bitset
+  version: 1730870b454dde6756091d8c6a3d780ef123674c
 devImports: []

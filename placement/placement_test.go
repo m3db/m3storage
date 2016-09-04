@@ -45,7 +45,7 @@ var (
 )
 
 func TestPlacement_AddDatabaseInvalid(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 
 	tests := []struct {
 		db  schema.DatabaseProperties
@@ -69,7 +69,7 @@ func TestPlacement_AddDatabaseInvalid(t *testing.T) {
 }
 
 func TestPlacement_AddDatabase(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	err := ts.sp.AddDatabase(schema.DatabaseProperties{
@@ -84,7 +84,7 @@ func TestPlacement_AddDatabase(t *testing.T) {
 	require.Equal(t, &schema.Placement{}, p)
 
 	changes := ts.latestChanges()
-	ts.requireEqualChanges(&schema.PlacementChanges{
+	requireEqualChanges(t, &schema.PlacementChanges{
 		DatabaseAdds: map[string]*schema.DatabaseAdd{
 			"foo": &schema.DatabaseAdd{
 				Database: &schema.Database{
@@ -96,7 +96,7 @@ func TestPlacement_AddDatabase(t *testing.T) {
 					CreatedAt:        xtime.ToUnixMillis(ts.clock.Now()),
 					LastUpdatedAt:    xtime.ToUnixMillis(ts.clock.Now()),
 					Clusters:         make(map[string]*schema.Cluster),
-					ShardAssignments: make(map[string]*schema.ClusterShardAssignment),
+					ShardAssignments: make(map[string]*schema.ShardSet),
 				}}},
 		DatabaseChanges: map[string]*schema.DatabaseChanges{
 			"foo": &schema.DatabaseChanges{}},
@@ -104,7 +104,7 @@ func TestPlacement_AddDatabase(t *testing.T) {
 }
 
 func TestPlacement_AddDatabaseRetentionPeriodConflictsWithExisting(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	// Force create a placement with the given database
@@ -129,14 +129,14 @@ func TestPlacement_AddDatabaseRetentionPeriodConflictsWithExisting(t *testing.T)
 
 	// and should not modify the placement changes
 	changes := ts.latestChanges()
-	ts.requireEqualChanges(&schema.PlacementChanges{
+	requireEqualChanges(t, &schema.PlacementChanges{
 		DatabaseAdds:    map[string]*schema.DatabaseAdd{},
 		DatabaseChanges: map[string]*schema.DatabaseChanges{},
 	}, changes)
 }
 
 func TestPlacement_AddDatabaseNameConflictsWithExisting(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	// Force create a placement with the given database
@@ -160,14 +160,14 @@ func TestPlacement_AddDatabaseNameConflictsWithExisting(t *testing.T) {
 
 	// and should not modify the placement changes
 	changes := ts.latestChanges()
-	ts.requireEqualChanges(&schema.PlacementChanges{
+	requireEqualChanges(t, &schema.PlacementChanges{
 		DatabaseAdds:    map[string]*schema.DatabaseAdd{},
 		DatabaseChanges: map[string]*schema.DatabaseChanges{},
 	}, changes)
 }
 
 func TestPlacement_AddDatabaseNameConflictsWithNewlyAdded(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	// Force create placement changes with that database in the adds list
@@ -183,7 +183,7 @@ func TestPlacement_AddDatabaseNameConflictsWithNewlyAdded(t *testing.T) {
 					CreatedAt:        xtime.ToUnixMillis(ts.clock.Now()),
 					LastUpdatedAt:    xtime.ToUnixMillis(ts.clock.Now()),
 					Clusters:         make(map[string]*schema.Cluster),
-					ShardAssignments: make(map[string]*schema.ClusterShardAssignment),
+					ShardAssignments: make(map[string]*schema.ShardSet),
 				}}},
 		DatabaseChanges: map[string]*schema.DatabaseChanges{
 			"foo": &schema.DatabaseChanges{}},
@@ -199,11 +199,11 @@ func TestPlacement_AddDatabaseNameConflictsWithNewlyAdded(t *testing.T) {
 	require.Equal(t, errDatabaseAlreadyExists, err)
 
 	// Should not modify existing changes
-	ts.requireEqualChanges(ts.latestChanges(), existingChanges)
+	requireEqualChanges(t, ts.latestChanges(), existingChanges)
 }
 
 func TestPlacement_AddDatabaseRetentionPeriodConflictsWithNewlyAdded(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	// Force create placement changes with that database in the adds list
@@ -219,7 +219,7 @@ func TestPlacement_AddDatabaseRetentionPeriodConflictsWithNewlyAdded(t *testing.
 					CreatedAt:        xtime.ToUnixMillis(ts.clock.Now()),
 					LastUpdatedAt:    xtime.ToUnixMillis(ts.clock.Now()),
 					Clusters:         make(map[string]*schema.Cluster),
-					ShardAssignments: make(map[string]*schema.ClusterShardAssignment),
+					ShardAssignments: make(map[string]*schema.ShardSet),
 				}}},
 		DatabaseChanges: map[string]*schema.DatabaseChanges{
 			"foo": &schema.DatabaseChanges{}},
@@ -235,11 +235,11 @@ func TestPlacement_AddDatabaseRetentionPeriodConflictsWithNewlyAdded(t *testing.
 	require.Equal(t, errDatabaseRetentionPeriodConflict, err)
 
 	// Should not modify existing changes
-	ts.requireEqualChanges(ts.latestChanges(), existingChanges)
+	requireEqualChanges(t, ts.latestChanges(), existingChanges)
 }
 
 func TestPlacement_JoinClusterInvalid(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 
 	require.NoError(t, ts.sp.AddDatabase(schema.DatabaseProperties{
 		Name:               "foo",
@@ -262,7 +262,7 @@ func TestPlacement_JoinClusterInvalid(t *testing.T) {
 }
 
 func TestPlacement_JoinClusterOnNewDatabase(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	err := ts.sp.AddDatabase(schema.DatabaseProperties{
@@ -281,7 +281,7 @@ func TestPlacement_JoinClusterOnNewDatabase(t *testing.T) {
 	require.NoError(t, err)
 
 	changes := ts.latestChanges()
-	ts.requireEqualChanges(&schema.PlacementChanges{
+	requireEqualChanges(t, &schema.PlacementChanges{
 		DatabaseAdds: map[string]*schema.DatabaseAdd{
 			"foo": &schema.DatabaseAdd{
 				Database: &schema.Database{
@@ -293,7 +293,7 @@ func TestPlacement_JoinClusterOnNewDatabase(t *testing.T) {
 					CreatedAt:        xtime.ToUnixMillis(ts.clock.Now()),
 					LastUpdatedAt:    xtime.ToUnixMillis(ts.clock.Now()),
 					Clusters:         make(map[string]*schema.Cluster),
-					ShardAssignments: make(map[string]*schema.ClusterShardAssignment),
+					ShardAssignments: make(map[string]*schema.ShardSet),
 				}}},
 		DatabaseChanges: map[string]*schema.DatabaseChanges{
 			"foo": &schema.DatabaseChanges{
@@ -316,7 +316,7 @@ func TestPlacement_JoinClusterOnNewDatabase(t *testing.T) {
 }
 
 func TestPlacement_JoinClusterOnExistingDatabase(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	// Force create a placement with the given database
@@ -340,7 +340,7 @@ func TestPlacement_JoinClusterOnExistingDatabase(t *testing.T) {
 
 	// Make sure we have the right changes
 	changes := ts.latestChanges()
-	ts.requireEqualChanges(&schema.PlacementChanges{
+	requireEqualChanges(t, &schema.PlacementChanges{
 		DatabaseChanges: map[string]*schema.DatabaseChanges{
 			"foo": &schema.DatabaseChanges{
 				Joins: map[string]*schema.ClusterJoin{
@@ -361,7 +361,7 @@ func TestPlacement_JoinClusterOnExistingDatabase(t *testing.T) {
 }
 
 func TestPlacement_JoinClusterConflictsWithExisting(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	// Force create a placement with the given database and cluster
@@ -387,11 +387,11 @@ func TestPlacement_JoinClusterConflictsWithExisting(t *testing.T) {
 	require.Equal(t, errClusterAlreadyExists, err)
 
 	// Shouldn't modify changes
-	ts.requireEqualChanges(ts.latestChanges(), &schema.PlacementChanges{})
+	requireEqualChanges(t, ts.latestChanges(), &schema.PlacementChanges{})
 }
 
 func TestPlacement_JoinClusterConflictsWithJoining(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	// Force create a placement with the given database
@@ -422,7 +422,7 @@ func TestPlacement_JoinClusterConflictsWithJoining(t *testing.T) {
 	require.Equal(t, errClusterAlreadyExists, err)
 
 	// Should only have the cluster once
-	ts.requireEqualChanges(&schema.PlacementChanges{
+	requireEqualChanges(t, &schema.PlacementChanges{
 		DatabaseChanges: map[string]*schema.DatabaseChanges{
 			"foo": &schema.DatabaseChanges{
 				Joins: map[string]*schema.ClusterJoin{
@@ -443,7 +443,7 @@ func TestPlacement_JoinClusterConflictsWithJoining(t *testing.T) {
 }
 
 func TestPlacement_JoinClusterNonExistentDatabase(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	// Join
@@ -456,7 +456,7 @@ func TestPlacement_JoinClusterNonExistentDatabase(t *testing.T) {
 }
 
 func TestPlacement_DecommissionExistingCluster(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	// Force create a placement with the given database and cluster
@@ -483,7 +483,7 @@ func TestPlacement_DecommissionExistingCluster(t *testing.T) {
 
 	// Should have the decommission in the list
 	changes := ts.latestChanges()
-	ts.requireEqualChanges(&schema.PlacementChanges{
+	requireEqualChanges(t, &schema.PlacementChanges{
 		DatabaseChanges: map[string]*schema.DatabaseChanges{
 			"foo": &schema.DatabaseChanges{
 				Decomms: map[string]*schema.ClusterDecommission{
@@ -496,7 +496,7 @@ func TestPlacement_DecommissionExistingCluster(t *testing.T) {
 }
 
 func TestPlacement_DecomissionJoiningCluster(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	// Force create a placement with the given database and cluster
@@ -524,7 +524,7 @@ func TestPlacement_DecomissionJoiningCluster(t *testing.T) {
 
 	// Should just have an empty changes list
 	changes := ts.latestChanges()
-	ts.requireEqualChanges(&schema.PlacementChanges{
+	requireEqualChanges(t, &schema.PlacementChanges{
 		DatabaseChanges: map[string]*schema.DatabaseChanges{
 			"foo": &schema.DatabaseChanges{},
 		},
@@ -533,7 +533,7 @@ func TestPlacement_DecomissionJoiningCluster(t *testing.T) {
 }
 
 func TestPlacement_DoubleDecommision(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	// Force create a placement with the given database and cluster
@@ -564,7 +564,7 @@ func TestPlacement_DoubleDecommision(t *testing.T) {
 
 	// Should have the decommission in the list
 	changes := ts.latestChanges()
-	ts.requireEqualChanges(&schema.PlacementChanges{
+	requireEqualChanges(t, &schema.PlacementChanges{
 		DatabaseChanges: map[string]*schema.DatabaseChanges{
 			"foo": &schema.DatabaseChanges{
 				Decomms: map[string]*schema.ClusterDecommission{
@@ -577,7 +577,7 @@ func TestPlacement_DoubleDecommision(t *testing.T) {
 }
 
 func TestPlacement_DecomissionNonExistentCluster(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	// Force create a placement with the given database but no cluster
@@ -596,11 +596,11 @@ func TestPlacement_DecomissionNonExistentCluster(t *testing.T) {
 	require.Equal(t, errClusterNotFound, err)
 
 	// Should not modify changes
-	ts.requireEqualChanges(&schema.PlacementChanges{}, ts.latestChanges())
+	requireEqualChanges(t, &schema.PlacementChanges{}, ts.latestChanges())
 }
 
 func TestPlacement_DecomissionClusterNonExistentDatabase(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	// Decommission - should fail
@@ -608,11 +608,11 @@ func TestPlacement_DecomissionClusterNonExistentDatabase(t *testing.T) {
 	require.Equal(t, errDatabaseNotFound, err)
 
 	// Should not modify changes
-	ts.requireEqualChanges(&schema.PlacementChanges{}, ts.latestChanges())
+	requireEqualChanges(t, &schema.PlacementChanges{}, ts.latestChanges())
 }
 
 func TestPlacement_CommitAddDatabase(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	// Add the database
@@ -629,7 +629,7 @@ func TestPlacement_CommitAddDatabase(t *testing.T) {
 	require.NoError(t, err)
 
 	// Confirm the placement looks correct
-	ts.requireEqualPlacements(&schema.Placement{
+	requireEqualPlacements(t, &schema.Placement{
 		Databases: map[string]*schema.Database{
 			"foo": &schema.Database{
 				Properties: &schema.DatabaseProperties{
@@ -640,7 +640,7 @@ func TestPlacement_CommitAddDatabase(t *testing.T) {
 				CreatedAt:        xtime.ToUnixMillis(ts.clock.Now()),
 				LastUpdatedAt:    xtime.ToUnixMillis(ts.clock.Now()),
 				Clusters:         make(map[string]*schema.Cluster),
-				ShardAssignments: make(map[string]*schema.ClusterShardAssignment),
+				ShardAssignments: make(map[string]*schema.ShardSet),
 				Version:          1,
 				MappingRules: []*schema.ClusterMappingRuleSet{
 					&schema.ClusterMappingRuleSet{
@@ -656,7 +656,7 @@ func TestPlacement_CommitAddDatabase(t *testing.T) {
 }
 
 func TestPlacement_CommitMultipleOverlappingInitialDatabases(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	// Add the databases
@@ -675,7 +675,7 @@ func TestPlacement_CommitMultipleOverlappingInitialDatabases(t *testing.T) {
 	require.NoError(t, ts.sp.CommitChanges(ts.latestVersion(), testCommitOpts))
 
 	// Confirm the placement looks correct
-	ts.requireEqualPlacements(&schema.Placement{
+	requireEqualPlacements(t, &schema.Placement{
 		Databases: map[string]*schema.Database{
 			"foo": &schema.Database{
 				Properties: &schema.DatabaseProperties{
@@ -712,7 +712,7 @@ func TestPlacement_CommitMultipleOverlappingInitialDatabases(t *testing.T) {
 }
 
 func TestPlacement_CommitDatabaseOverlapsWithExisting(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	// Add the initial databases
@@ -745,7 +745,7 @@ func TestPlacement_CommitDatabaseOverlapsWithExisting(t *testing.T) {
 	require.NoError(t, ts.sp.CommitChanges(ts.latestVersion(), testCommitOpts))
 
 	// The new database should require graceful cutover
-	ts.requireEqualPlacements(&schema.Placement{
+	requireEqualPlacements(t, &schema.Placement{
 		Databases: map[string]*schema.Database{
 			"foo": &schema.Database{
 				Properties: &schema.DatabaseProperties{
@@ -819,7 +819,7 @@ func TestPlacement_CommitDatabaseOverlapsWithExisting(t *testing.T) {
 }
 
 func TestPlacement_CommitInitialClusters(t *testing.T) {
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
 	// Add the database and some clusters
@@ -847,7 +847,7 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 	require.NoError(t, err)
 
 	// Confirm the placement looks correct
-	ts.requireEqualPlacements(&schema.Placement{
+	requireEqualPlacements(t, &schema.Placement{
 		Databases: map[string]*schema.Database{
 			"foo": &schema.Database{
 				Properties: &schema.DatabaseProperties{
@@ -857,13 +857,9 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 				},
 				CreatedAt:     createTime,
 				LastUpdatedAt: createTime,
-				ShardAssignments: map[string]*schema.ClusterShardAssignment{
-					"bar": &schema.ClusterShardAssignment{
-						Shards: []uint32{0, 1},
-					},
-					"zed": &schema.ClusterShardAssignment{
-						Shards: []uint32{2, 3},
-					},
+				ShardAssignments: map[string]*schema.ShardSet{
+					"bar": NewShardSet(0, 1),
+					"zed": NewShardSet(2, 3),
 				},
 				Version: 1,
 				Clusters: map[string]*schema.Cluster{
@@ -889,16 +885,15 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 				MappingRules: []*schema.ClusterMappingRuleSet{
 					&schema.ClusterMappingRuleSet{
 						ForVersion: 1,
-						Cutovers: []*schema.CutoverRule{
-							&schema.CutoverRule{
-								ClusterName:      "bar",
-								Shards:           []uint32{0, 1},
+						ShardTransitions: []*schema.ShardTransitionRule{
+							&schema.ShardTransitionRule{
+								ToCluster:        "bar",
+								Shards:           NewShardSet(0, 1),
 								ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 								WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
-							},
-							&schema.CutoverRule{
-								ClusterName:      "zed",
-								Shards:           []uint32{2, 3},
+							}, &schema.ShardTransitionRule{
+								ToCluster:        "zed",
+								Shards:           NewShardSet(2, 3),
 								ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 								WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 							},
@@ -915,7 +910,7 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 
 func TestPlacement_CommitDecommissionCluster(t *testing.T) {
 	// Create a database with a set of clusters
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 	createTime := xtime.ToUnixMillis(ts.clock.Now())
 
@@ -956,13 +951,9 @@ func TestPlacement_CommitDecommissionCluster(t *testing.T) {
 		},
 		CreatedAt:     createTime,
 		LastUpdatedAt: createTime,
-		ShardAssignments: map[string]*schema.ClusterShardAssignment{
-			"c1": &schema.ClusterShardAssignment{
-				Shards: []uint32{0, 1},
-			},
-			"c2": &schema.ClusterShardAssignment{
-				Shards: []uint32{2, 3},
-			},
+		ShardAssignments: map[string]*schema.ShardSet{
+			"c1": NewShardSet(0, 1),
+			"c2": NewShardSet(2, 3),
 		},
 		Version: 1,
 		Clusters: map[string]*schema.Cluster{
@@ -988,16 +979,16 @@ func TestPlacement_CommitDecommissionCluster(t *testing.T) {
 		MappingRules: []*schema.ClusterMappingRuleSet{
 			&schema.ClusterMappingRuleSet{
 				ForVersion: 1,
-				Cutovers: []*schema.CutoverRule{
-					&schema.CutoverRule{
-						ClusterName:      "c1",
-						Shards:           []uint32{0, 1},
+				ShardTransitions: []*schema.ShardTransitionRule{
+					&schema.ShardTransitionRule{
+						ToCluster:        "c1",
+						Shards:           NewShardSet(0, 1),
 						ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 						WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 					},
-					&schema.CutoverRule{
-						ClusterName:      "c2",
-						Shards:           []uint32{2, 3},
+					&schema.ShardTransitionRule{
+						ToCluster:        "c2",
+						Shards:           NewShardSet(2, 3),
 						ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 						WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 					},
@@ -1011,7 +1002,7 @@ func TestPlacement_CommitDecommissionCluster(t *testing.T) {
 			"foo": db,
 		},
 	}
-	ts.requireEqualPlacements(expectedPlacement, ts.latestPlacement())
+	requireEqualPlacements(t, expectedPlacement, ts.latestPlacement())
 
 	// Decommission an existing cluster
 	ts.clock.Add(time.Hour * 72)
@@ -1021,33 +1012,28 @@ func TestPlacement_CommitDecommissionCluster(t *testing.T) {
 	// should redistribute traffic to the remaining cluster
 	db.Version = 2
 	db.Clusters["c1"].Status = schema.ClusterStatus_DECOMMISSIONING
-	db.ShardAssignments["c1"].Shards = nil
-	db.ShardAssignments["c2"].Shards = []uint32{0, 1, 2, 3}
+	db.ShardAssignments["c1"].Bits = nil
+	db.ShardAssignments["c2"] = NewShardSet(0, 1, 2, 3)
 	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
 		ForVersion: 2,
-		Cutovers: []*schema.CutoverRule{
-			&schema.CutoverRule{
-				ClusterName:      "c2",
-				Shards:           []uint32{0, 1},
-				ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
-				WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
-			},
-		},
-		Cutoffs: []*schema.CutoffRule{
-			&schema.CutoffRule{
-				ClusterName: "c1",
-				Shards:      []uint32{0, 1},
-				CutoffTime:  xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
+		ShardTransitions: []*schema.ShardTransitionRule{
+			&schema.ShardTransitionRule{
+				ToCluster:           "c2",
+				FromCluster:         "c1",
+				Shards:              NewShardSet(0, 1),
+				ReadCutoverTime:     xtime.ToUnixMillis(ts.clock.Now()),
+				WriteCutoverTime:    xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
+				CutoverCompleteTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
 			},
 		},
 	})
 
-	ts.requireEqualPlacements(expectedPlacement, ts.latestPlacement())
+	requireEqualPlacements(t, expectedPlacement, ts.latestPlacement())
 }
 
 func TestPlacement_CommitJoinClusters(t *testing.T) {
 	// Create an empty database
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 	createTime := xtime.ToUnixMillis(ts.clock.Now())
 
@@ -1081,7 +1067,7 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 		},
 	}
 
-	ts.requireEqualPlacements(expectedPlacement, ts.latestPlacement())
+	requireEqualPlacements(t, expectedPlacement, ts.latestPlacement())
 
 	// Join the first cluster
 	ts.clock.Add(time.Minute * 30)
@@ -1108,18 +1094,16 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 		},
 	}
 
-	db.ShardAssignments = map[string]*schema.ClusterShardAssignment{
-		"c1": &schema.ClusterShardAssignment{
-			Shards: []uint32{0, 1, 2, 3},
-		},
+	db.ShardAssignments = map[string]*schema.ShardSet{
+		"c1": NewShardSet(0, 1, 2, 3),
 	}
 
 	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
 		ForVersion: 2,
-		Cutovers: []*schema.CutoverRule{
-			&schema.CutoverRule{
-				ClusterName:      "c1",
-				Shards:           []uint32{0, 1, 2, 3},
+		ShardTransitions: []*schema.ShardTransitionRule{
+			&schema.ShardTransitionRule{
+				ToCluster:        "c1",
+				Shards:           NewShardSet(0, 1, 2, 3),
 				ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 				WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 			},
@@ -1149,28 +1133,23 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 		CreatedAt: c2CreateTime,
 	}
 
-	db.ShardAssignments["c1"] = &schema.ClusterShardAssignment{Shards: []uint32{2, 3}}
-	db.ShardAssignments["c2"] = &schema.ClusterShardAssignment{Shards: []uint32{0, 1}}
+	db.ShardAssignments["c1"] = NewShardSet(2, 3)
+	db.ShardAssignments["c2"] = NewShardSet(0, 1)
 
 	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
 		ForVersion: 3,
-		Cutovers: []*schema.CutoverRule{
-			&schema.CutoverRule{
-				ClusterName:      "c2",
-				Shards:           []uint32{0, 1},
-				ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
-				WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
-			},
-		},
-		Cutoffs: []*schema.CutoffRule{
-			&schema.CutoffRule{
-				ClusterName: "c1",
-				Shards:      []uint32{0, 1},
-				CutoffTime:  xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
+		ShardTransitions: []*schema.ShardTransitionRule{
+			&schema.ShardTransitionRule{
+				ToCluster:           "c2",
+				FromCluster:         "c1",
+				Shards:              NewShardSet(0, 1),
+				ReadCutoverTime:     xtime.ToUnixMillis(ts.clock.Now()),
+				WriteCutoverTime:    xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
+				CutoverCompleteTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
 			},
 		},
 	})
-	ts.requireEqualPlacements(expectedPlacement, ts.latestPlacement())
+	requireEqualPlacements(t, expectedPlacement, ts.latestPlacement())
 
 	// Join a third cluster, this leaves the distribution unbalanced, so the oldest
 	// cluster should have one more shard than the others
@@ -1196,35 +1175,30 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 		CreatedAt: c3CreateTime,
 	}
 
-	db.ShardAssignments["c1"] = &schema.ClusterShardAssignment{Shards: []uint32{2, 3}}
-	db.ShardAssignments["c2"] = &schema.ClusterShardAssignment{Shards: []uint32{1}}
-	db.ShardAssignments["c3"] = &schema.ClusterShardAssignment{Shards: []uint32{0}}
+	db.ShardAssignments["c1"] = NewShardSet(2, 3)
+	db.ShardAssignments["c2"] = NewShardSet(1)
+	db.ShardAssignments["c3"] = NewShardSet(0)
 
 	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
 		ForVersion: 4,
-		Cutovers: []*schema.CutoverRule{
-			&schema.CutoverRule{
-				ClusterName:      "c3",
-				Shards:           []uint32{0},
-				ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
-				WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
-			},
-		},
-		Cutoffs: []*schema.CutoffRule{
-			&schema.CutoffRule{
-				ClusterName: "c2",
-				Shards:      []uint32{0},
-				CutoffTime:  xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
+		ShardTransitions: []*schema.ShardTransitionRule{
+			&schema.ShardTransitionRule{
+				ToCluster:           "c3",
+				FromCluster:         "c2",
+				Shards:              NewShardSet(0),
+				ReadCutoverTime:     xtime.ToUnixMillis(ts.clock.Now()),
+				WriteCutoverTime:    xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
+				CutoverCompleteTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
 			},
 		},
 	})
 
-	ts.requireEqualPlacements(expectedPlacement, ts.latestPlacement())
+	requireEqualPlacements(t, expectedPlacement, ts.latestPlacement())
 }
 
 func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 	// Create a database with a set of clusters
-	ts := newTestSuite(t)
+	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 	createTime := xtime.ToUnixMillis(ts.clock.Now())
 
@@ -1265,13 +1239,9 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 		},
 		CreatedAt:     createTime,
 		LastUpdatedAt: createTime,
-		ShardAssignments: map[string]*schema.ClusterShardAssignment{
-			"c1": &schema.ClusterShardAssignment{
-				Shards: []uint32{0, 1},
-			},
-			"c2": &schema.ClusterShardAssignment{
-				Shards: []uint32{2, 3},
-			},
+		ShardAssignments: map[string]*schema.ShardSet{
+			"c1": NewShardSet(0, 1),
+			"c2": NewShardSet(2, 3),
 		},
 		Version: 1,
 		Clusters: map[string]*schema.Cluster{
@@ -1297,16 +1267,16 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 		MappingRules: []*schema.ClusterMappingRuleSet{
 			&schema.ClusterMappingRuleSet{
 				ForVersion: 1,
-				Cutovers: []*schema.CutoverRule{
-					&schema.CutoverRule{
-						ClusterName:      "c1",
-						Shards:           []uint32{0, 1},
+				ShardTransitions: []*schema.ShardTransitionRule{
+					&schema.ShardTransitionRule{
+						ToCluster:        "c1",
+						Shards:           NewShardSet(0, 1),
 						ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 						WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 					},
-					&schema.CutoverRule{
-						ClusterName:      "c2",
-						Shards:           []uint32{2, 3},
+					&schema.ShardTransitionRule{
+						ToCluster:        "c2",
+						Shards:           NewShardSet(2, 3),
 						ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 						WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 					},
@@ -1320,7 +1290,7 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 			"foo": db,
 		},
 	}
-	ts.requireEqualPlacements(expectedPlacement, ts.latestPlacement())
+	requireEqualPlacements(t, expectedPlacement, ts.latestPlacement())
 
 	// Join another cluster
 	ts.clock.Add(time.Minute * 30)
@@ -1344,29 +1314,24 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 		CreatedAt: c3CreateTime,
 		Status:    schema.ClusterStatus_ACTIVE,
 	}
-	db.ShardAssignments["c1"] = &schema.ClusterShardAssignment{Shards: []uint32{0, 1}}
-	db.ShardAssignments["c2"] = &schema.ClusterShardAssignment{Shards: []uint32{3}}
-	db.ShardAssignments["c3"] = &schema.ClusterShardAssignment{Shards: []uint32{2}}
+	db.ShardAssignments["c1"] = NewShardSet(0, 1)
+	db.ShardAssignments["c2"] = NewShardSet(3)
+	db.ShardAssignments["c3"] = NewShardSet(2)
 	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
 		ForVersion: 2,
-		Cutovers: []*schema.CutoverRule{
-			&schema.CutoverRule{
-				ClusterName:      "c3",
-				Shards:           []uint32{2},
-				ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
-				WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
-			},
-		},
-		Cutoffs: []*schema.CutoffRule{
-			&schema.CutoffRule{
-				ClusterName: "c2",
-				Shards:      []uint32{2},
-				CutoffTime:  xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
+		ShardTransitions: []*schema.ShardTransitionRule{
+			&schema.ShardTransitionRule{
+				ToCluster:           "c3",
+				FromCluster:         "c2",
+				Shards:              NewShardSet(2),
+				ReadCutoverTime:     xtime.ToUnixMillis(ts.clock.Now()),
+				WriteCutoverTime:    xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
+				CutoverCompleteTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
 			},
 		},
 	})
 
-	ts.requireEqualPlacements(expectedPlacement, ts.latestPlacement())
+	requireEqualPlacements(t, expectedPlacement, ts.latestPlacement())
 
 	// Decommission an existing clusters and add a third
 	ts.clock.Add(time.Hour * 72)
@@ -1391,54 +1356,57 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 		CreatedAt: c4CreateTime,
 	}
 	db.Clusters["c1"].Status = schema.ClusterStatus_DECOMMISSIONING
-	db.ShardAssignments["c1"] = &schema.ClusterShardAssignment{}
-	db.ShardAssignments["c2"] = &schema.ClusterShardAssignment{Shards: []uint32{0, 3}}
-	db.ShardAssignments["c4"] = &schema.ClusterShardAssignment{Shards: []uint32{1}}
+	db.ShardAssignments["c1"] = NewShardSet()
+	db.ShardAssignments["c2"] = NewShardSet(0, 3)
+	db.ShardAssignments["c4"] = NewShardSet(1)
 
 	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
 		ForVersion: 3,
-		Cutovers: []*schema.CutoverRule{
-			&schema.CutoverRule{
-				ClusterName:      "c2",
-				Shards:           []uint32{0},
-				ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
-				WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
+		ShardTransitions: []*schema.ShardTransitionRule{
+			&schema.ShardTransitionRule{
+				ToCluster:           "c2",
+				FromCluster:         "c1",
+				Shards:              NewShardSet(0),
+				ReadCutoverTime:     xtime.ToUnixMillis(ts.clock.Now()),
+				WriteCutoverTime:    xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
+				CutoverCompleteTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
 			},
 
-			&schema.CutoverRule{
-				ClusterName:      "c4",
-				Shards:           []uint32{1},
-				ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
-				WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
-			},
-		},
-		Cutoffs: []*schema.CutoffRule{
-			&schema.CutoffRule{
-				ClusterName: "c1",
-				Shards:      []uint32{0, 1},
-				CutoffTime:  xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
+			&schema.ShardTransitionRule{
+				ToCluster:           "c4",
+				FromCluster:         "c1",
+				Shards:              NewShardSet(1),
+				ReadCutoverTime:     xtime.ToUnixMillis(ts.clock.Now()),
+				WriteCutoverTime:    xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
+				CutoverCompleteTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
 			},
 		},
 	})
 
-	ts.requireEqualPlacements(expectedPlacement, ts.latestPlacement())
+	requireEqualPlacements(t, expectedPlacement, ts.latestPlacement())
 }
 
-type testSuite struct {
+type placementTestSuite struct {
 	kv    kv.Store
 	sp    StoragePlacement
-	t     *testing.T
+	t     require.TestingT
 	clock *clock.Mock
 }
 
-func newTestSuite(t *testing.T) *testSuite {
+func newPlacementTestSuite(t require.TestingT) *placementTestSuite {
+	return newPlacementTestSuiteWithLogger(t, xlog.SimpleLogger)
+}
+
+func newPlacementTestSuiteWithLogger(t require.TestingT, logger xlog.Logger) *placementTestSuite {
 	kv := kv.NewFakeStore()
 	clock := clock.NewMock()
 
-	sp, err := NewStoragePlacement(kv, "p", NewStoragePlacementOptions().Clock(clock).Logger(xlog.SimpleLogger))
+	sp, err := NewStoragePlacement(kv, "p", NewStoragePlacementOptions().
+		Clock(clock).
+		Logger(xlog.NullLogger))
 	require.NoError(t, err)
 
-	return &testSuite{
+	return &placementTestSuite{
 		kv:    kv,
 		sp:    sp,
 		clock: clock,
@@ -1446,25 +1414,25 @@ func newTestSuite(t *testing.T) *testSuite {
 	}
 }
 
-func (ts *testSuite) latestPlacement() *schema.Placement {
+func (ts *placementTestSuite) latestPlacement() *schema.Placement {
 	_, p, _, err := ts.sp.GetPendingChanges()
 	require.NoError(ts.t, err)
 	return p
 }
 
-func (ts *testSuite) latestVersion() int {
+func (ts *placementTestSuite) latestVersion() int {
 	v, _, _, err := ts.sp.GetPendingChanges()
 	require.NoError(ts.t, err)
 	return v
 }
 
-func (ts *testSuite) latestChanges() *schema.PlacementChanges {
+func (ts *placementTestSuite) latestChanges() *schema.PlacementChanges {
 	_, _, changes, err := ts.sp.GetPendingChanges()
 	require.NoError(ts.t, err)
 	return changes
 }
 
-func (ts *testSuite) forcePlacement(newPlacement *schema.Placement) {
+func (ts *placementTestSuite) forcePlacement(newPlacement *schema.Placement) {
 	require.NoError(ts.t, ts.sp.(storagePlacement).mgr.Change(func(_, _ proto.Message) error {
 		return nil
 	}))
@@ -1478,7 +1446,7 @@ func (ts *testSuite) forcePlacement(newPlacement *schema.Placement) {
 		}))
 }
 
-func (ts *testSuite) forceChanges(newChanges *schema.PlacementChanges) {
+func (ts *placementTestSuite) forceChanges(newChanges *schema.PlacementChanges) {
 	require.NoError(ts.t, ts.sp.(storagePlacement).mgr.Change(func(_, protoChanges proto.Message) error {
 		c := protoChanges.(*schema.PlacementChanges)
 		*c = *newChanges
@@ -1486,9 +1454,11 @@ func (ts *testSuite) forceChanges(newChanges *schema.PlacementChanges) {
 	}))
 }
 
-func (ts *testSuite) requireEqualPlacements(p1, p2 *schema.Placement) {
-	t := ts.t
+func (ts *placementTestSuite) commitLatest() {
+	require.NoError(ts.t, ts.sp.CommitChanges(ts.latestVersion(), testCommitOpts), "error committing")
+}
 
+func requireEqualPlacements(t *testing.T, p1, p2 *schema.Placement) {
 	if p1.Databases == nil {
 		require.Nil(t, p2.Databases, "expected nil Databases")
 	}
@@ -1496,14 +1466,13 @@ func (ts *testSuite) requireEqualPlacements(p1, p2 *schema.Placement) {
 	for name, db1 := range p1.Databases {
 		db2 := p2.Databases[name]
 		require.NotNil(t, db2, "no Database named %s", name)
-		ts.requireEqualDatabases(name, db1, db2)
+		requireEqualDatabases(t, name, db1, db2)
 	}
 
 	require.Equal(t, len(p1.Databases), len(p2.Databases), "Databases")
 }
 
-func (ts *testSuite) requireEqualDatabases(dbname string, db1, db2 *schema.Database) {
-	t := ts.t
+func requireEqualDatabases(t *testing.T, dbname string, db1, db2 *schema.Database) {
 	require.Equal(t, db1.Properties.Name, db2.Properties.Name, "Name for db %s", dbname)
 	require.Equal(t, db1.Properties.MaxRetentionInSecs, db2.Properties.MaxRetentionInSecs,
 		"MaxRetentionInSecs[%s]", dbname)
@@ -1519,14 +1488,14 @@ func (ts *testSuite) requireEqualDatabases(dbname string, db1, db2 *schema.Datab
 	for cname, c1 := range db1.Clusters {
 		c2 := db2.Clusters[cname]
 		require.NotNil(t, c2, "no Cluster named %s in %s", cname, dbname)
-		ts.requireEqualClusters(dbname, cname, c1, c2)
+		requireEqualClusters(t, dbname, cname, c1, c2)
 	}
 	require.Equal(t, len(db1.Clusters), len(db2.Clusters), "Clusters[%s]", dbname)
 
 	for cname, a1 := range db1.ShardAssignments {
 		a2 := db2.ShardAssignments[cname]
 		require.NotNil(t, a2, "no ShardAssigment for %s in %s", cname, dbname)
-		require.Equal(t, a1.Shards, a2.Shards, "Shards[%s:%s]", dbname, cname)
+		require.Equal(t, a1.Bits, a2.Bits, "Bits[%s:%s]", dbname, cname)
 	}
 	require.Equal(t, len(db1.ShardAssignments), len(db2.ShardAssignments))
 
@@ -1534,32 +1503,25 @@ func (ts *testSuite) requireEqualDatabases(dbname string, db1, db2 *schema.Datab
 	for i := range db1.MappingRules {
 		r1, r2 := db1.MappingRules[i], db2.MappingRules[i]
 		require.Equal(t, r1.ForVersion, r2.ForVersion, "ForVersion[%s:%d]", dbname, i)
-		require.Equal(t, len(r1.Cutovers), len(r2.Cutovers), "Cutovers[%s:%d]", dbname, i)
-		for n := range r1.Cutovers {
-			cut1, cut2 := r1.Cutovers[n], r2.Cutovers[n]
-			require.Equal(t, cut1.ClusterName, cut2.ClusterName,
-				"Cutovers[%s:%d:%d].ClusterName", dbname, i, n)
-			require.Equal(t, cut1.ReadCutoverTime, cut2.ReadCutoverTime,
-				"Cutovers[%s:%d:%d].ReadCutoverTime", dbname, i, n)
-			require.Equal(t, cut1.WriteCutoverTime, cut2.WriteCutoverTime,
-				"Cutovers[%s:%d:%d].WriteCutoverTime", dbname, i, n)
-			require.Equal(t, cut1.Shards, cut2.Shards, "Cutovers[%s:%d:%d].Shards", dbname, i, n)
-		}
-
-		require.Equal(t, len(r1.Cutoffs), len(r2.Cutoffs), "Cutoffs[%s:%d]", dbname, i)
-		for n := range r1.Cutoffs {
-			cut1, cut2 := r1.Cutoffs[n], r2.Cutoffs[n]
-			require.Equal(t, cut1.ClusterName, cut2.ClusterName,
-				"Cutoffs[%s:%d:%d].ClusterName", dbname, i, n)
-			require.Equal(t, cut1.CutoffTime, cut2.CutoffTime, "Cutoffs[%s:%d:%d].CutoffTime", dbname, i, n)
-			require.Equal(t, cut1.Shards, cut2.Shards, "Cutoffs[%s:%d:%d].Shards", dbname, i, n)
+		require.Equal(t, len(r1.ShardTransitions), len(r2.ShardTransitions), "Cutovers[%s:%d]", dbname, i)
+		for n := range r1.ShardTransitions {
+			t1, t2 := r1.ShardTransitions[n], r2.ShardTransitions[n]
+			require.Equal(t, t1.ToCluster, t2.ToCluster,
+				"ShardTransitions[%s:%d:%d].ToCluster", dbname, i, n)
+			require.Equal(t, t1.FromCluster, t2.FromCluster,
+				"ShardTransitions[%s:%d:%d].FromCluster", dbname, i, n)
+			require.Equal(t, t1.ReadCutoverTime, t2.ReadCutoverTime,
+				"ShardTransitions[%s:%d:%d].ReadCutoverTime", dbname, i, n)
+			require.Equal(t, t1.WriteCutoverTime, t2.WriteCutoverTime,
+				"ShardTransitions[%s:%d:%d].WriteCutoverTime", dbname, i, n)
+			require.Equal(t, t1.CutoverCompleteTime, t2.CutoverCompleteTime,
+				"ShardTransitions[%s:%d:%d].CutoverCompleteTime", dbname, i, n)
+			require.Equal(t, t1.Shards.Bits, t2.Shards.Bits, "ShardTransitions[%s:%d:%d].Bits", dbname, i, n)
 		}
 	}
 }
 
-func (ts *testSuite) requireEqualClusters(dbname, cname string, c1, c2 *schema.Cluster) {
-	t := ts.t
-
+func requireEqualClusters(t *testing.T, dbname, cname string, c1, c2 *schema.Cluster) {
 	require.Equal(t, c1.Properties.Name, c2.Properties.Name, "Name[%s:%s]", dbname, cname)
 	require.Equal(t, c1.Properties.Weight, c2.Properties.Weight, "Weight[%s:%s]", dbname, cname)
 	require.Equal(t, c1.Properties.Type, c2.Properties.Type, "Type[%s:%s]", dbname, cname)
@@ -1567,31 +1529,27 @@ func (ts *testSuite) requireEqualClusters(dbname, cname string, c1, c2 *schema.C
 	require.Equal(t, c1.CreatedAt, c2.CreatedAt, "CreatedAt[%s:%s]", dbname, cname)
 }
 
-func (ts *testSuite) requireEqualChanges(c1, c2 *schema.PlacementChanges) {
-	t := ts.t
-
+func requireEqualChanges(t *testing.T, c1, c2 *schema.PlacementChanges) {
 	for dbname, add1 := range c1.DatabaseAdds {
 		add2 := c2.DatabaseAdds[dbname]
 		require.NotNil(t, add2, "No DatabaseAdd for %s", dbname)
-		ts.requireEqualDatabases(dbname, add1.Database, add2.Database)
+		requireEqualDatabases(t, dbname, add1.Database, add2.Database)
 	}
 	require.Equal(t, len(c1.DatabaseAdds), len(c2.DatabaseAdds))
 
 	for dbname, dbchange1 := range c1.DatabaseChanges {
 		dbchange2 := c2.DatabaseChanges[dbname]
 		require.NotNil(t, dbchange2, "No DatabaseChange for %s", dbname)
-		ts.requireEqualDatabaseChanges(dbname, dbchange1, dbchange2)
+		requireEqualDatabaseChanges(t, dbname, dbchange1, dbchange2)
 	}
 	require.Equal(t, len(c1.DatabaseChanges), len(c2.DatabaseChanges))
 }
 
-func (ts *testSuite) requireEqualDatabaseChanges(dbname string, c1, c2 *schema.DatabaseChanges) {
-	t := ts.t
-
+func requireEqualDatabaseChanges(t *testing.T, dbname string, c1, c2 *schema.DatabaseChanges) {
 	for cname, j1 := range c1.Joins {
 		j2 := c2.Joins[cname]
 		require.NotNil(t, j2, "no join for %s in %s", cname, dbname)
-		ts.requireEqualClusters(dbname, cname, j1.Cluster, j2.Cluster)
+		requireEqualClusters(t, dbname, cname, j1.Cluster, j2.Cluster)
 	}
 
 	for cname, d1 := range c1.Decomms {

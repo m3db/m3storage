@@ -21,6 +21,18 @@ autogen_subdir_clear() {
     rm -f ${DIR}/*.go
 }
 
+proto_clear() {
+	for DIR in $SRC;
+	do
+		PROTOS="${DIR}/*.pb.go"
+		if ls $PROTOS &> /dev/null; then
+			for FILE in $(ls PROTOS); do
+				rm $FILE
+			done
+		fi
+	done	
+}
+
 mocks_clear() {
     for DIR in $SRC;
     do
@@ -102,6 +114,8 @@ set -e
 
 if [ "$2" = "generated/mocks" ]; then
     mocks_clear
+elif [ "$s" = "generated/proto" ]; then
+		proto_clear
 else
     autogen_clear $1
 fi
