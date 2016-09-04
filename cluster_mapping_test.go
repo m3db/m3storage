@@ -164,6 +164,8 @@ func (scm fakeClusterMappingProvider) QueryMappings(shard uint32, start, end tim
 	}
 }
 
+func (scm fakeClusterMappingProvider) Close() error { return nil }
+
 type fakeClusterMappingIter struct {
 	mappings      []ClusterMapping
 	current, next int
