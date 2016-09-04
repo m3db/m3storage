@@ -945,6 +945,7 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 	ts.clock.Add(time.Second * 45)
 
 	// Commit the changes
+	commitTime := xtime.ToUnixMillis(ts.clock.Now())
 	err := ts.sp.CommitChanges(ts.latestVersion(), testCommitOpts)
 	require.NoError(t, err)
 
@@ -958,7 +959,7 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 					NumShards:          testNumShards,
 				},
 				CreatedAt:     createTime,
-				LastUpdatedAt: createTime,
+				LastUpdatedAt: commitTime,
 				ShardAssignments: map[string]*schema.ShardSet{
 					"bar": NewShardSet(0, 1),
 					"zed": NewShardSet(2, 3),
@@ -973,7 +974,7 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 						},
 						Status:        schema.ClusterStatus_ACTIVE,
 						CreatedAt:     createTime,
-						LastUpdatedAt: createTime,
+						LastUpdatedAt: commitTime,
 						Config:        []byte("bar-config"),
 					},
 					"zed": &schema.Cluster{
@@ -984,7 +985,7 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 						},
 						Status:        schema.ClusterStatus_ACTIVE,
 						CreatedAt:     createTime,
-						LastUpdatedAt: createTime,
+						LastUpdatedAt: commitTime,
 						Config:        []byte("zed-config"),
 					},
 				},
@@ -1012,6 +1013,108 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 
 	// ...and we've moved on to a new set of changes
 	require.Nil(t, ts.latestChanges())
+}
+
+func TestPlacement_CommitClusterConfigUpdates(t *testing.T) {
+	ts := newPlacementTestSuite(t)
+	createTime := xtime.ToUnixMillis(ts.clock.Now())
+
+	// Create a database and clusters and commit
+	require.NoError(t, ts.sp.AddDatabase(schema.DatabaseProperties{
+		Name:               "foo",
+		MaxRetentionInSecs: testRetentionInSecs,
+		NumShards:          testNumShards,
+	}))
+	require.NoError(t, ts.sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "c1",
+		Weight: uint32(testNumShards / 2),
+		Type:   "m3db",
+	}, []byte("c1-config")))
+	require.NoError(t, ts.sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "c2",
+		Weight: uint32(testNumShards / 2),
+		Type:   "m3db",
+	}, []byte("c2-config")))
+
+	ts.clock.Add(time.Minute * 45)
+	initialCommitTime := ts.clock.Now()
+	ts.commitLatest()
+
+	// Update one of the cluster configurations and commit
+	ts.clock.Add(time.Minute * 20)
+	updateCommitTime := xtime.ToUnixMillis(ts.clock.Now())
+	require.NoError(t, ts.sp.UpdateClusterConfig("foo", "c2", []byte("c2-config2")))
+	ts.commitLatest()
+
+	// Confirm placement
+	requireEqualPlacements(t, &schema.Placement{
+		Databases: map[string]*schema.Database{
+			"foo": &schema.Database{
+				Properties: &schema.DatabaseProperties{
+					Name:               "foo",
+					NumShards:          testNumShards,
+					MaxRetentionInSecs: testRetentionInSecs,
+				},
+				CreatedAt:     createTime,
+				LastUpdatedAt: updateCommitTime,
+				ShardAssignments: map[string]*schema.ShardSet{
+					"c1": NewShardSet(0, 1),
+					"c2": NewShardSet(2, 3),
+				},
+				Version: 2,
+				Clusters: map[string]*schema.Cluster{
+					"c1": &schema.Cluster{
+						Properties: &schema.ClusterProperties{
+							Name:   "c1",
+							Weight: uint32(testNumShards / 2),
+							Type:   "m3db",
+						},
+						Status:        schema.ClusterStatus_ACTIVE,
+						CreatedAt:     createTime,
+						LastUpdatedAt: xtime.ToUnixMillis(initialCommitTime),
+						Config:        []byte("c1-config"),
+					},
+					"c2": &schema.Cluster{
+						Properties: &schema.ClusterProperties{
+							Name:   "c2",
+							Weight: uint32(testNumShards / 2),
+							Type:   "m3db",
+						},
+						Status:        schema.ClusterStatus_ACTIVE,
+						CreatedAt:     createTime,
+						LastUpdatedAt: updateCommitTime,
+						Config:        []byte("c2-config2"),
+					},
+				},
+				MappingRules: []*schema.ClusterMappingRuleSet{
+					&schema.ClusterMappingRuleSet{
+						ForVersion: 1,
+						ShardTransitions: []*schema.ShardTransitionRule{
+							&schema.ShardTransitionRule{
+								ToCluster:        "c1",
+								Shards:           NewShardSet(0, 1),
+								ReadCutoverTime:  xtime.ToUnixMillis(initialCommitTime),
+								WriteCutoverTime: xtime.ToUnixMillis(initialCommitTime.Add(testRolloutDelay)),
+							}, &schema.ShardTransitionRule{
+								ToCluster:        "c2",
+								Shards:           NewShardSet(2, 3),
+								ReadCutoverTime:  xtime.ToUnixMillis(initialCommitTime),
+								WriteCutoverTime: xtime.ToUnixMillis(initialCommitTime.Add(testRolloutDelay)),
+							},
+						},
+					},
+					&schema.ClusterMappingRuleSet{
+						ForVersion: 2,
+						ClusterConfigUpdates: []*schema.ClusterConfigUpdateRule{
+							&schema.ClusterConfigUpdateRule{
+								ClusterName: "c2",
+							},
+						},
+					},
+				},
+			},
+		},
+	}, ts.latestPlacement())
 }
 
 func TestPlacement_CommitDecommissionCluster(t *testing.T) {
@@ -1056,7 +1159,7 @@ func TestPlacement_CommitDecommissionCluster(t *testing.T) {
 			NumShards:          testNumShards,
 		},
 		CreatedAt:     createTime,
-		LastUpdatedAt: createTime,
+		LastUpdatedAt: xtime.ToUnixMillis(ts.clock.Now()),
 		ShardAssignments: map[string]*schema.ShardSet{
 			"c1": NewShardSet(0, 1),
 			"c2": NewShardSet(2, 3),
@@ -1124,6 +1227,7 @@ func TestPlacement_CommitDecommissionCluster(t *testing.T) {
 	db.Clusters["c1"].Status = schema.ClusterStatus_DECOMMISSIONING
 	db.ShardAssignments["c1"].Bits = nil
 	db.ShardAssignments["c2"] = NewShardSet(0, 1, 2, 3)
+	db.LastUpdatedAt = xtime.ToUnixMillis(ts.clock.Now())
 	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
 		ForVersion: 2,
 		ShardTransitions: []*schema.ShardTransitionRule{
@@ -1249,6 +1353,7 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 
 	db.ShardAssignments["c1"] = NewShardSet(2, 3)
 	db.ShardAssignments["c2"] = NewShardSet(0, 1)
+	db.LastUpdatedAt = xtime.ToUnixMillis(ts.clock.Now())
 
 	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
 		ForVersion: 3,
@@ -1294,6 +1399,7 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 	db.ShardAssignments["c1"] = NewShardSet(2, 3)
 	db.ShardAssignments["c2"] = NewShardSet(1)
 	db.ShardAssignments["c3"] = NewShardSet(0)
+	db.LastUpdatedAt = xtime.ToUnixMillis(ts.clock.Now())
 
 	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
 		ForVersion: 4,
@@ -1354,7 +1460,7 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 			NumShards:          testNumShards,
 		},
 		CreatedAt:     createTime,
-		LastUpdatedAt: createTime,
+		LastUpdatedAt: xtime.ToUnixMillis(ts.clock.Now()),
 		ShardAssignments: map[string]*schema.ShardSet{
 			"c1": NewShardSet(0, 1),
 			"c2": NewShardSet(2, 3),
@@ -1439,6 +1545,7 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 	db.ShardAssignments["c1"] = NewShardSet(0, 1)
 	db.ShardAssignments["c2"] = NewShardSet(3)
 	db.ShardAssignments["c3"] = NewShardSet(2)
+	db.LastUpdatedAt = xtime.ToUnixMillis(ts.clock.Now())
 	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
 		ForVersion: 2,
 		ShardTransitions: []*schema.ShardTransitionRule{
@@ -1483,6 +1590,7 @@ func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
 	db.ShardAssignments["c1"] = NewShardSet()
 	db.ShardAssignments["c2"] = NewShardSet(0, 3)
 	db.ShardAssignments["c4"] = NewShardSet(1)
+	db.LastUpdatedAt = xtime.ToUnixMillis(ts.clock.Now())
 
 	db.MappingRules = append(db.MappingRules, &schema.ClusterMappingRuleSet{
 		ForVersion: 3,

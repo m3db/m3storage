@@ -406,6 +406,15 @@ func (sp storagePlacement) commitDatabaseChanges(
 	opts CommitOptions) error {
 
 	sp.log.Infof("processing changes to database %s", db.Properties.Name)
+
+	// Update any cluster configurations that need to be applied
+	for cname, config := range changes.ClusterConfigUpdates {
+		sp.log.Infof("updating config for cluster %s:%s", db.Properties.Name, cname)
+		db.Clusters[cname].Config = config
+		db.Clusters[cname].LastUpdatedAt = xtime.ToUnixMillis(sp.clock.Now())
+	}
+
+	// Compute shard reassignments
 	var (
 		unowned       bitset.BitSet
 		shardCutoffs  = make(map[string]*bitset.BitSet)
@@ -592,11 +601,22 @@ func (sp storagePlacement) commitDatabaseChanges(
 		}
 	}
 
-	// ...sort the transitions so they have a deterministic ordering...
+	// ...and sort the transitions so they have a deterministic ordering
 	sort.Sort(shardTransitionsByCluster(rules.ShardTransitions))
 
-	// ...and add to the list of mappings for the database
+	// Generate config update rules for any clusters that have been modified...
+	for cname := range changes.ClusterConfigUpdates {
+		rules.ClusterConfigUpdates = append(rules.ClusterConfigUpdates, &schema.ClusterConfigUpdateRule{
+			ClusterName: cname,
+		})
+	}
+
+	// ...and sort these by cluster name so they have a deterministic ordering
+	sort.Sort(clusterConfigUpdatesByCluster(rules.ClusterConfigUpdates))
+
+	// Finally, add everything to the database mapping rules
 	db.MappingRules = append(db.MappingRules, rules)
+	db.LastUpdatedAt = xtime.ToUnixMillis(sp.clock.Now())
 	return nil
 }
 
@@ -751,7 +771,7 @@ func (dbs databasesByRetention) Less(i, j int) bool {
 	return dbs[i].Properties.MaxRetentionInSecs < dbs[j].Properties.MaxRetentionInSecs
 }
 
-// sort.Interface for ShardTransitionRule by to cluster name
+// sort.Interface for ShardTransitionRule by cluster name
 type shardTransitionsByCluster []*schema.ShardTransitionRule
 
 func (c shardTransitionsByCluster) Len() int      { return len(c) }
@@ -767,6 +787,15 @@ func (c shardTransitionsByCluster) Less(i, j int) bool {
 	}
 
 	return strings.Compare(c[i].FromCluster, c[j].FromCluster) < 0
+}
+
+// sort.Interface for ClusterConfigUpdateRule by cluster name
+type clusterConfigUpdatesByCluster []*schema.ClusterConfigUpdateRule
+
+func (c clusterConfigUpdatesByCluster) Len() int      { return len(c) }
+func (c clusterConfigUpdatesByCluster) Swap(i, j int) { c[i], c[j] = c[j], c[i] }
+func (c clusterConfigUpdatesByCluster) Less(i, j int) bool {
+	return strings.Compare(c[i].ClusterName, c[j].ClusterName) < 0
 }
 
 // NewShardSet returns a new shard set initialized with a list of shards
