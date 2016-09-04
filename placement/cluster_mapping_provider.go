@@ -51,8 +51,8 @@ func NewClusterMappingProviderOptions() ClusterMappingProviderOptions {
 // top of the placement data
 type clusterMappingProvider struct {
 	sync.RWMutex
-	byRetention []*databaseMapping          // ordered by retention period (shortest first)
-	byName      map[string]*databaseMapping // indexed by name
+	byRetention []*database          // ordered by retention period (shortest first)
+	byName      map[string]*database // indexed by name
 
 	watch  kv.ValueWatch
 	closed chan struct{}
@@ -86,7 +86,7 @@ func NewClusterMappingProvider(
 	}
 
 	prov := &clusterMappingProvider{
-		byName: make(map[string]*databaseMapping),
+		byName: make(map[string]*database),
 		log:    log,
 		clock:  c,
 		watch:  watch,
@@ -104,15 +104,15 @@ func (mp *clusterMappingProvider) QueryMappings(
 	queryAgeInSecs := int32(mp.clock.Now().Sub(end) / time.Second)
 
 	// Figure out which database mapping to use given the age of the datapoints being queried
-	dbm := mp.findDatabaseMappings(queryAgeInSecs)
-	if dbm == nil {
+	db := mp.findDatabase(queryAgeInSecs)
+	if db == nil {
 		// No database mappings - return an empty iterator
-		return &clusterMappingIter{}, nil
+		return &mappingRuleIter{}, nil
 	}
 
 	// Figure out which active mapping contains that shard
-	return &clusterMappingIter{
-		prior: dbm.findActiveForShard(uint(shard)),
+	return &mappingRuleIter{
+		prior: db.mappings.findActiveForShard(uint(shard)),
 	}, nil
 }
 
@@ -129,7 +129,7 @@ func (mp *clusterMappingProvider) Close() error {
 }
 
 // findDatabaseMappings finds the database mappings that apply to the given retention
-func (mp *clusterMappingProvider) findDatabaseMappings(retentionPeriodInSecs int32) *databaseMapping {
+func (mp *clusterMappingProvider) findDatabase(retentionPeriodInSecs int32) *database {
 	// NB(mmihic): We use copy-on-write for the database mappings, so it's safe to return
 	// a reference without the
 	mp.RLock()
@@ -157,34 +157,33 @@ func (mp *clusterMappingProvider) update(p *schema.Placement) error {
 	// mappings by first making a copy, then updating the copy in place,
 	// then swapping out the pointers atomically
 	mp.RLock()
-	byName := make(map[string]*databaseMapping, len(mp.byName))
-	byRetention := make([]*databaseMapping, len(mp.byRetention))
-	for n, dbm := range mp.byRetention {
-		dbm := dbm.clone()
-		byRetention[n], byName[dbm.name] = dbm, dbm
+	byName := make(map[string]*database, len(mp.byName))
+	byRetention := make([]*database, len(mp.byRetention))
+	for n, db := range mp.byRetention {
+		byRetention[n], byName[db.name] = db, db
 	}
 	mp.RUnlock()
 
 	// Update the clone with the new settings
-	for _, db := range p.Databases {
-		if existing := byName[db.Properties.Name]; existing != nil {
-			if err := existing.update(db); err != nil {
+	for _, dbConfig := range p.Databases {
+		if existing := byName[dbConfig.Properties.Name]; existing != nil {
+			if err := existing.update(dbConfig); err != nil {
 				return err
 			}
 			continue
 		}
 
 		// This is a new mapping - create and apply all rules
-		dbm, err := newDatabaseMapping(db, mp.log)
+		db, err := newDatabase(dbConfig, mp.log)
 		if err != nil {
 			return err
 		}
 
-		byName[db.Properties.Name] = dbm
-		byRetention = append(byRetention, dbm)
+		byName[dbConfig.Properties.Name] = db
+		byRetention = append(byRetention, db)
 	}
 
-	sort.Sort(databaseMappingsByMaxRetention(byRetention))
+	sort.Sort(databasesByMaxRetention(byRetention))
 
 	// Swap out the pointers
 	mp.Lock()
@@ -227,4 +226,13 @@ func (opts clusterMappingProviderOptions) Logger(log xlog.Logger) ClusterMapping
 func (opts clusterMappingProviderOptions) Clock(clock clock.Clock) ClusterMappingProviderOptions {
 	opts.clock = clock
 	return opts
+}
+
+// sort.Interface for sorting database by retention period
+type databasesByMaxRetention []*database
+
+func (dbs databasesByMaxRetention) Len() int      { return len(dbs) }
+func (dbs databasesByMaxRetention) Swap(i, j int) { dbs[i], dbs[j] = dbs[j], dbs[i] }
+func (dbs databasesByMaxRetention) Less(i, j int) bool {
+	return dbs[i].maxRetentionInSecs < dbs[j].maxRetentionInSecs
 }
