@@ -311,8 +311,8 @@ func (dbm *databaseMappings) applyRules(rules *schema.ClusterMappingRuleSet) err
 
 			if a.cluster != t.FromCluster {
 				// Gah! Something is broken
-				dbm.log.Errorf(`expecting to transition %d shards from cluster %s to 
-cluster %s but those shards are currently assigned to %s`,
+				dbm.log.Errorf("expecting to transition %d shards from cluster %s to "+
+					"cluster %s but those shards are currently assigned to %s",
 					shards.Count(), t.FromCluster, t.ToCluster, a.cluster)
 				return errInvalidTransition
 			}
