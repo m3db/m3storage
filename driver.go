@@ -52,6 +52,15 @@ type Connection interface {
 
 // A Driver is used to create connections to a cluster of a given storage class
 type Driver interface {
+	xclose.Closer
+
+	// ConfigType returns an empty proto.Message representing the configuration
+	// type used by the driver
+	ConfigType() proto.Message
+
+	// Type is the type of storage supported by the driver
+	Type() Type
+
 	// OpenConnection opens a connection with the provided config
 	OpenConnection(config proto.Message) (Connection, error)
 
