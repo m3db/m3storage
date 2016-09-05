@@ -30,7 +30,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBuildClusterQueryPlan(t *testing.T) {
+func TestQueryPlanner_Plan(t *testing.T) {
 	var (
 		clock       = clock.NewMock()
 		now         = clock.Now().Add(time.Hour * 24 * 365)
