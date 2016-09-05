@@ -26,6 +26,7 @@ import (
 	"github.com/m3db/m3storage"
 	"github.com/m3db/m3storage/generated/proto/configtest"
 	"github.com/m3db/m3storage/generated/proto/schema"
+	"github.com/m3db/m3storage/mapping"
 	"github.com/m3db/m3x/log"
 
 	"github.com/stretchr/testify/require"
@@ -242,7 +243,7 @@ func TestProvider_QueryMappings(t *testing.T) {
 			require.Equal(t, len(q.results), len(results), "bad results for %s query %d", test.scenario, n)
 			for i := range results {
 				r1, r2 := q.results[i], results[i]
-				requireEqualClusterMappings(t, r1, r2, fmt.Sprintf("bad result %d for %s query %d", i, test.scenario, n))
+				requireEqualMappingRules(t, r1, r2, fmt.Sprintf("bad result %d for %s query %d", i, test.scenario, n))
 			}
 		}
 	}
@@ -397,8 +398,8 @@ func benchmarkNClusterSplits(b *testing.B, numSplits, expectedLoMappings int) {
 	}
 }
 
-func collectMappings(iter storage.ClusterMappingIter) []storage.ClusterMapping {
-	var results []storage.ClusterMapping
+func collectMappings(iter storage.MappingRuleIter) []mapping.Rule {
+	var results []mapping.Rule
 	for iter.Next() {
 		results = append(results, iter.Current())
 	}
@@ -427,7 +428,7 @@ func (m queryResult) CutoffTime() time.Time       { return m.cutoff }
 func (m queryResult) Cluster() string             { return m.cluster }
 func (m queryResult) Database() string            { return m.database }
 
-func requireEqualClusterMappings(t *testing.T, expected, actual storage.ClusterMapping, name string) {
+func requireEqualMappingRules(t *testing.T, expected, actual mapping.Rule, name string) {
 	require.Equal(t, expected.ReadCutoverTime().String(), actual.ReadCutoverTime().String(),
 		"%s ReadCutoverTime", name)
 	require.Equal(t, expected.WriteCutoverTime().String(), actual.WriteCutoverTime().String(),

@@ -21,8 +21,8 @@ package placement
 import (
 	"time"
 
-	"github.com/m3db/m3storage"
 	"github.com/m3db/m3storage/generated/proto/schema"
+	"github.com/m3db/m3storage/mapping"
 	"github.com/m3db/m3x/log"
 	"github.com/m3db/m3x/time"
 
@@ -184,7 +184,7 @@ func (iter *mappingRuleIter) Next() bool {
 }
 
 // Current returns the current mapping
-func (iter *mappingRuleIter) Current() storage.ClusterMapping { return iter.current }
+func (iter *mappingRuleIter) Current() mapping.Rule { return iter.current }
 
 // Close closes the iterator
 func (iter *mappingRuleIter) Close() error { return nil }

@@ -21,6 +21,7 @@ package storage
 import (
 	"time"
 
+	"github.com/m3db/m3storage/mapping"
 	"github.com/m3db/m3x/close"
 )
 
@@ -33,6 +34,19 @@ type ClusterWatch interface {
 
 	// Get returns the current state of the cluster
 	Get() Cluster
+}
+
+// A MappingRuleIter is an iterator over Rules.  Allows provider to
+// control how these are stored internally
+type MappingRuleIter interface {
+	xclose.Closer
+
+	// Next moves to the next mapping, returning false if there are no more
+	// mappings
+	Next() bool
+
+	// Current returns the current mapping
+	Current() mapping.Rule
 }
 
 // A ClusterMappingProvider provides shard mapping rules and cluster watches
