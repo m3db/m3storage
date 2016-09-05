@@ -645,7 +645,9 @@ func (d *fakeDriver) OpenConnection(cfg proto.Message) (Connection, error) {
 		return nil, d.fail
 	}
 
-	return newFakeConnection(cfg.(*configtest.TestConfig))
+	return &fakeConnection{
+		TestConfig: *(cfg.(*configtest.TestConfig)),
+	}, nil
 }
 
 func (d *fakeDriver) ReconfigureConnection(conn Connection, cfg proto.Message) (Connection, error) {
@@ -655,35 +657,18 @@ func (d *fakeDriver) ReconfigureConnection(conn Connection, cfg proto.Message) (
 		return nil, d.fail
 	}
 
-	return newFakeConnection(cfg.(*configtest.TestConfig))
-}
-
-func newFakeConnection(c *configtest.TestConfig) (Connection, error) {
-	hosts := make(map[string]struct{}, len(c.Hosts))
-	for _, h := range c.Hosts {
-		hosts[h] = struct{}{}
-	}
-
 	return &fakeConnection{
-		TestConfig: *c,
-		hosts:      hosts,
+		TestConfig: *(cfg.(*configtest.TestConfig)),
 	}, nil
 }
 
 type fakeConnection struct {
 	configtest.TestConfig
 	closed uint32
-	hosts  map[string]struct{}
 }
 
 func (conn *fakeConnection) Read(id string, r retention.Resolution, start, end time.Time) (SeriesIter, error) {
-	return &fakeSeriesIter{
-		next: start.Truncate(r.WindowSize()),
-		end:  end.Truncate(r.WindowSize()),
-		v:    conn.TestConfig.BaseValue,
-		incv: conn.TestConfig.IncValue,
-		inct: time.Duration(conn.TestConfig.StepSize) * time.Second,
-	}, nil
+	return nil, nil
 }
 
 func (conn *fakeConnection) Write(id string, r retention.Resolution, t time.Time, v float64) error {
@@ -694,27 +679,6 @@ func (conn *fakeConnection) Close() error {
 	atomic.AddUint32(&conn.closed, 1)
 	return nil
 }
-
-type fakeSeriesIter struct {
-	next, end time.Time
-	t         time.Time
-	v         float64
-	inct      time.Duration
-	incv      float64
-}
-
-func (iter *fakeSeriesIter) Next() bool {
-	if iter.next.After(iter.end) {
-		return false
-	}
-
-	iter.t, iter.next = iter.next, iter.next.Add(iter.inct)
-	iter.v = iter.v + iter.incv
-	return true
-}
-
-func (iter *fakeSeriesIter) Current() (float64, time.Time) { return iter.v, iter.t }
-func (iter *fakeSeriesIter) Close() error                  { return nil }
 
 type fakeProvider struct {
 	sync.Mutex
