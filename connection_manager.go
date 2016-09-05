@@ -33,6 +33,10 @@ import (
 var (
 	errClosed          = errors.New("closed")
 	errTypeUnsupported = errors.New("unsupported storage type")
+
+	errConnectionManagerLogRequired      = errors.New("logger required")
+	errConnectionManagerDriversRequired  = errors.New("at least 1 driver required")
+	errConnectionManagerProviderRequired = errors.New("provider required")
 )
 
 // ConnectionManagerOptions are creation time options for the ConnectionManager
@@ -41,17 +45,24 @@ type ConnectionManagerOptions interface {
 	Logger(log xlog.Logger) ConnectionManagerOptions
 	GetLogger() xlog.Logger
 
-	// ClusterMappingProvider provides information about active clusters
-	ClusterMappingProvider(p ClusterMappingProvider) ConnectionManagerOptions
-	GetClusterMappingProvider() ClusterMappingProvider
+	// Provider provides information about active clusters
+	Provider(p ClusterMappingProvider) ConnectionManagerOptions
+	GetProvider() ClusterMappingProvider
 
 	// Drivers are the set of drivers used by this ConnectionManager
 	Drivers(d []Driver) ConnectionManagerOptions
 	GetDrivers() []Driver
+
+	// Validate validates the options
+	Validate() error
 }
 
 // NewConnectionManagerOptions returns new empty ConnectionManagerOptions
-func NewConnectionManagerOptions() ConnectionManagerOptions { return connectionManagerOptions{} }
+func NewConnectionManagerOptions() ConnectionManagerOptions {
+	return connectionManagerOptions{
+		log: xlog.NullLogger,
+	}
+}
 
 // The ConnectionManager manages connections to tsdb clusters, creating them as
 // needed and keeping them up to date with configuration changes
@@ -62,37 +73,29 @@ type ConnectionManager interface {
 	GetConnection(database, cluster string) (Connection, error)
 }
 
+// NewConnectionManager creates a new connection manager based on the provided
+// options
 func NewConnectionManager(opts ConnectionManagerOptions) (ConnectionManager, error) {
 	if opts == nil {
 		opts = NewConnectionManagerOptions()
 	}
 
-	log := opts.GetLogger()
-	if log == nil {
-		log = xlog.NullLogger
+	if err := opts.Validate(); err != nil {
+		return nil, err
 	}
 
-	d := opts.GetDrivers()
-	if len(d) == 0 {
-		panic("at least one driver must be registered")
-	}
-	drivers := make(map[string]Driver, len(d))
-	for _, driver := range d {
+	drivers := make(map[string]Driver, len(opts.GetDrivers()))
+	for _, driver := range opts.GetDrivers() {
 		drivers[driver.Type().Name()] = driver
 	}
 
-	p := opts.GetClusterMappingProvider()
-	if p == nil {
-		panic("ClusterMappingProvider must be specified")
-	}
-
 	return &connectionManager{
-		log:      log,
+		log:      opts.GetLogger(),
 		conns:    make(map[string]Connection),
 		pending:  make(map[string]<-chan struct{}),
 		watches:  make(map[string]ClusterWatch),
 		drivers:  drivers,
-		provider: p,
+		provider: opts.GetProvider(),
 	}, nil
 }
 
@@ -350,9 +353,25 @@ type connectionManagerOptions struct {
 	d     []Driver
 }
 
+func (opts connectionManagerOptions) Validate() error {
+	if opts.log == nil {
+		return errConnectionManagerLogRequired
+	}
+
+	if len(opts.d) == 0 {
+		return errConnectionManagerDriversRequired
+	}
+
+	if opts.p == nil {
+		return errConnectionManagerProviderRequired
+	}
+
+	return nil
+}
+
 func (opts connectionManagerOptions) GetLogger() xlog.Logger { return opts.log }
 func (opts connectionManagerOptions) GetDrivers() []Driver   { return opts.d }
-func (opts connectionManagerOptions) GetClusterMappingProvider() ClusterMappingProvider {
+func (opts connectionManagerOptions) GetProvider() ClusterMappingProvider {
 	return opts.p
 }
 
@@ -361,7 +380,7 @@ func (opts connectionManagerOptions) Logger(log xlog.Logger) ConnectionManagerOp
 	return opts
 }
 
-func (opts connectionManagerOptions) ClusterMappingProvider(p ClusterMappingProvider) ConnectionManagerOptions {
+func (opts connectionManagerOptions) Provider(p ClusterMappingProvider) ConnectionManagerOptions {
 	opts.p = p
 	return opts
 }
