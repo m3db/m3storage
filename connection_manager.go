@@ -113,11 +113,11 @@ type connectionManager struct {
 func (cm *connectionManager) GetConnection(database, cluster string) (Connection, error) {
 	cm.log.Debugf("retrieving connection for %s:%s", database, cluster)
 	for {
-		if conn, err := cm.getExistingConnection(database, cluster); conn != nil || err != nil {
+		if conn, err := cm.getExistingConn(database, cluster); conn != nil || err != nil {
 			return conn, err
 		}
 
-		if conn, err := cm.tryCreateConnection(database, cluster); conn != nil || err != nil {
+		if conn, err := cm.tryOpenConn(database, cluster); conn != nil || err != nil {
 			return conn, err
 		}
 	}
@@ -148,8 +148,8 @@ func (cm *connectionManager) Close() error {
 	return nil
 }
 
-// getExistingConnection attmepts to return an existing open connection to the database cluster
-func (cm *connectionManager) getExistingConnection(database, cluster string) (Connection, error) {
+// getExistingConn attmepts to return an existing open connection to the database cluster
+func (cm *connectionManager) getExistingConn(database, cluster string) (Connection, error) {
 	key := fmtConnKey(database, cluster)
 
 	cm.RLock()
@@ -169,8 +169,8 @@ func (cm *connectionManager) getExistingConnection(database, cluster string) (Co
 	return nil, nil
 }
 
-// tryCreateConnection tries to create a new connection to the database cluster
-func (cm *connectionManager) tryCreateConnection(database, cluster string) (Connection, error) {
+// tryOpenConn tries to create a new connection to the database cluster
+func (cm *connectionManager) tryOpenConn(database, cluster string) (Connection, error) {
 	key := fmtConnKey(database, cluster)
 
 	cm.log.Infof("attempting to create connection to %s:%s", database, cluster)
@@ -224,22 +224,23 @@ func (cm *connectionManager) tryCreateConnection(database, cluster string) (Conn
 	cl := cw.Get()
 
 	// create the connection using the cluster configuration
-	conn, err := cm.openConnection(cl)
+	conn, err := cm.openConn(cl)
 	if err != nil {
+		cm.log.Errorf("failed to open connection for %s:%s: %v", database, cluster, err)
 		cw.Close()
 		return nil, err
 	}
 
 	// register the connection and monitor the cluter for updates
-	if err := cm.registerConnection(cl, cw, conn); err != nil {
+	if err := cm.registerConn(cl, cw, conn); err != nil {
 		return nil, err
 	}
 
 	return conn, nil
 }
 
-// openConnection opens a connection to the given cluster
-func (cm *connectionManager) openConnection(cl Cluster) (Connection, error) {
+// openConn opens a connection to the given cluster
+func (cm *connectionManager) openConn(cl Cluster) (Connection, error) {
 	d := cm.drivers[cl.Type().Name()]
 	if d == nil {
 		cm.log.Errorf("unsupported driver type %s for %s:%s",
@@ -257,8 +258,8 @@ func (cm *connectionManager) openConnection(cl Cluster) (Connection, error) {
 	return d.OpenConnection(cfg)
 }
 
-// registerConnection registers a newly opened connection to the given database cluster
-func (cm *connectionManager) registerConnection(cl Cluster, cw ClusterWatch, conn Connection) error {
+// registerConn registers a newly opened connection to the given database cluster
+func (cm *connectionManager) registerConn(cl Cluster, cw ClusterWatch, conn Connection) error {
 	key := fmtConnKey(cl.Database(), cl.Name())
 
 	cm.Lock()
@@ -283,45 +284,63 @@ func (cm *connectionManager) registerConnection(cl Cluster, cw ClusterWatch, con
 // watchCluster monitors the given cluster for config updates
 func (cm *connectionManager) watchCluster(cl Cluster, cw ClusterWatch, conn Connection) {
 
-	var (
-		key = fmtConnKey(cl.Database(), cl.Name())
-		d   = cm.drivers[cl.Type().Name()]
-	)
-
+	cm.log.Infof("watching %s:%s", cl.Database(), cl.Name())
 	for range cw.C() {
-		cl = cw.Get()
-		cm.log.Infof("received update v%d for %s:%s", cl.Config().Version(), cl.Database(), cl.Name())
-
-		cfg := proto.Clone(d.ConfigType())
-		if err := cl.Config().Unmarshal(cfg); err != nil {
-			// Don't bail out, just log and metric
-			cm.log.Errorf("invalid config v%d for %s:%s: %v",
-				cl.Config().Version(), cl.Database(), cl.Name(), err)
-			continue
-		}
-
-		newConn, err := d.ReconfigureConnection(conn, cfg)
-		if err != nil {
-			cm.log.Errorf("could not reconfigure conn for %s:%d v%d: %v",
-				cl.Database(), cl.Name(), cl.Config().Version(), err)
-			continue
-		}
-
-		cm.Lock()
-		cm.conns[key] = newConn
-		cm.Unlock()
+		cm.reconfigureConn(cw.Get(), conn)
 	}
 
-	// Cleanup watch and connection, and let the closing goroutine know that we are done
-	cm.log.Infof("cleaning up connection to %s:%s", cl.Database(), cl.Name())
+	cm.cleanupConn(cl.Database(), cl.Name())
+	cm.wg.Done()
+}
+
+// reconfigureConn reconfigures a connection with new cluster configuration
+func (cm *connectionManager) reconfigureConn(cl Cluster, existing Connection) error {
+	key := fmtConnKey(cl.Database(), cl.Name())
+	d := cm.drivers[cl.Type().Name()]
+	if d == nil {
+		cm.log.Errorf("received update v%d for %s:%s: unsupported storage type %s",
+			cl.Config().Version(), cl.Database(), cl.Name(), cl.Type().Name())
+		return errTypeUnsupported
+	}
+
+	cm.log.Infof("received update v%d for %s:%s", cl.Config().Version(), cl.Database(), cl.Name())
+
+	cfg := proto.Clone(d.ConfigType())
+	if err := cl.Config().Unmarshal(cfg); err != nil {
+		// Don't bail out, just log and metric
+		cm.log.Errorf("invalid config v%d for %s:%s: %v",
+			cl.Config().Version(), cl.Database(), cl.Name(), err)
+		return err
+	}
+
+	newConn, err := d.ReconfigureConnection(existing, cfg)
+	if err != nil {
+		cm.log.Errorf("could not reconfigure conn for %s:%d v%d: %v",
+			cl.Database(), cl.Name(), cl.Config().Version(), err)
+		return err
+	}
+
 	cm.Lock()
-	conn = cm.conns[key]
+	cm.conns[key] = newConn
+	cm.Unlock()
+	return nil
+}
+
+// cleanupConn cleans up the connection to the given database and cluster
+func (cm *connectionManager) cleanupConn(database, cluster string) {
+	cm.log.Infof("cleaning up connection to %s:%s", database, cluster)
+
+	key := fmtConnKey(database, cluster)
+
+	cm.Lock()
+	conn := cm.conns[key]
 	delete(cm.conns, key)
 	delete(cm.watches, key)
 	cm.Unlock()
 
-	conn.Close()
-	cm.wg.Done()
+	if conn != nil {
+		conn.Close()
+	}
 }
 
 type connectionManagerOptions struct {
