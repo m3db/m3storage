@@ -34,11 +34,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestNewConnectionManagerErrors(t *testing.T) {
+	d := newFakeDriver()
+	p := newFakeProvider()
+
+	tests := []struct {
+		opts ConnectionManagerOptions
+		err  error
+	}{
+		{NewConnectionManagerOptions().Logger(nil).Drivers([]Driver{d}).Provider(p),
+			errConnectionManagerLogRequired},
+		{NewConnectionManagerOptions().Provider(p),
+			errConnectionManagerDriversRequired},
+		{NewConnectionManagerOptions().Drivers([]Driver{d}),
+			errConnectionManagerProviderRequired},
+	}
+
+	for _, test := range tests {
+		m, err := NewConnectionManager(test.opts)
+		require.Equal(t, test.err, err)
+		require.Nil(t, m)
+	}
+}
+
 func TestConnectionManagerGetConnection(t *testing.T) {
 	d := newFakeDriver()
 	p := newFakeProvider()
 	m, err := NewConnectionManager(NewConnectionManagerOptions().
-		ClusterMappingProvider(p).
+		Provider(p).
 		Drivers([]Driver{d}))
 
 	require.NoError(t, err)
@@ -69,7 +92,7 @@ func TestConnectionManagerConcurrentGetNewConnection(t *testing.T) {
 	d := newFakeDriver()
 	p := newFakeProvider()
 	m, err := NewConnectionManager(NewConnectionManagerOptions().
-		ClusterMappingProvider(p).
+		Provider(p).
 		Drivers([]Driver{d}).
 		Logger(xlog.SimpleLogger))
 
@@ -142,7 +165,7 @@ func TestConnectionManagerGetConnectionWatchFails(t *testing.T) {
 	d := newFakeDriver()
 	p := newFakeProvider()
 	m, err := NewConnectionManager(NewConnectionManagerOptions().
-		ClusterMappingProvider(p).
+		Provider(p).
 		Drivers([]Driver{d}).
 		Logger(xlog.SimpleLogger))
 
@@ -161,7 +184,7 @@ func TestConnectionManagerGetConnectionDriverFails(t *testing.T) {
 	d := newFakeDriver()
 	p := newFakeProvider()
 	m, err := NewConnectionManager(NewConnectionManagerOptions().
-		ClusterMappingProvider(p).
+		Provider(p).
 		Drivers([]Driver{d}))
 
 	require.NoError(t, err)
@@ -190,7 +213,7 @@ func TestConnectionManagerGetConnectionClosedManager(t *testing.T) {
 	d := newFakeDriver()
 	p := newFakeProvider()
 	m, err := NewConnectionManager(NewConnectionManagerOptions().
-		ClusterMappingProvider(p).
+		Provider(p).
 		Drivers([]Driver{d}))
 
 	require.NoError(t, err)
@@ -218,7 +241,7 @@ func TestConnectionManagerGetConnectionUnsupportedType(t *testing.T) {
 	d := newFakeDriver()
 	p := newFakeProvider()
 	m, err := NewConnectionManager(NewConnectionManagerOptions().
-		ClusterMappingProvider(p).
+		Provider(p).
 		Drivers([]Driver{d}))
 
 	require.NoError(t, err)
@@ -245,7 +268,7 @@ func TestConnectionManagerGetConnectionManagerClosedWhileDriverWorking(t *testin
 	d := newFakeDriver()
 	p := newFakeProvider()
 	m, err := NewConnectionManager(NewConnectionManagerOptions().
-		ClusterMappingProvider(p).
+		Provider(p).
 		Drivers([]Driver{d}))
 
 	require.NoError(t, err)
@@ -301,7 +324,7 @@ func TestConnectionManagerGetConnectionUnmarshalConfigError(t *testing.T) {
 	d := newFakeDriver()
 	p := newFakeProvider()
 	m, err := NewConnectionManager(NewConnectionManagerOptions().
-		ClusterMappingProvider(p).
+		Provider(p).
 		Drivers([]Driver{d}))
 
 	require.NoError(t, err)
@@ -325,7 +348,7 @@ func TestConnectionManagerReconfigureCluster(t *testing.T) {
 	d := newFakeDriver()
 	p := newFakeProvider()
 	m, err := NewConnectionManager(NewConnectionManagerOptions().
-		ClusterMappingProvider(p).
+		Provider(p).
 		Drivers([]Driver{d}).
 		Logger(xlog.SimpleLogger))
 
@@ -384,7 +407,7 @@ func TestConnectionManagerReconfigureClusterDriverFails(t *testing.T) {
 	d := newFakeDriver()
 	p := newFakeProvider()
 	m, err := NewConnectionManager(NewConnectionManagerOptions().
-		ClusterMappingProvider(p).
+		Provider(p).
 		Drivers([]Driver{d}))
 
 	require.NoError(t, err)
@@ -444,7 +467,7 @@ func TestConnectionManagerReconfigureClusterUnmarshalError(t *testing.T) {
 	d := newFakeDriver()
 	p := newFakeProvider()
 	m, err := NewConnectionManager(NewConnectionManagerOptions().
-		ClusterMappingProvider(p).
+		Provider(p).
 		Drivers([]Driver{d}))
 
 	require.NoError(t, err)
@@ -500,7 +523,7 @@ func TestConnectionManagerReconfigureClusterUnsupportedType(t *testing.T) {
 	d := newFakeDriver()
 	p := newFakeProvider()
 	m, err := NewConnectionManager(NewConnectionManagerOptions().
-		ClusterMappingProvider(p).
+		Provider(p).
 		Drivers([]Driver{d}))
 
 	require.NoError(t, err)
@@ -559,7 +582,7 @@ func TestConnectionManagerCloseWithOpenConns(t *testing.T) {
 	d := newFakeDriver()
 	p := newFakeProvider()
 	m, err := NewConnectionManager(NewConnectionManagerOptions().
-		ClusterMappingProvider(p).
+		Provider(p).
 		Drivers([]Driver{d}))
 
 	require.NoError(t, err)
