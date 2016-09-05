@@ -22,6 +22,9 @@ package configtest;
 
 message TestConfig {
 	repeated string hosts = 1;
+	double base_value = 2;
+	double inc_value = 3;
+	int32 step_size = 4;
 }
 
 
