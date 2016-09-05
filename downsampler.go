@@ -18,37 +18,16 @@
 
 package storage
 
-import (
-	"time"
+// A Downsampler combines multiple datapoints that appear within the
+// same time interval to produce a single downsampled result
+type Downsampler interface {
+	// Init initializes the downsampler to store results in the given values
+	Init(vals SeriesValues)
 
-	"github.com/m3db/m3storage/retention"
-)
+	// AddSample adds a datapoint sample to the given interval
+	AddSample(n int, v float64)
 
-// The Manager is the main interface into the storage system, supporting
-// queries against multiple storage clusters
-type Manager interface {
-	// Query reads datapoints for the id between two times
-	Query(id string, start, end time.Time, ds Downsampler) (QueryResult, error)
+	// Finish tells the downsampler we're complete and the final values
+	// computed (if they are not already)
+	Finish()
 }
-
-// QueryResult is the result of doing a read
-type QueryResult interface {
-	// Resolution is the resolution of the returned series
-	Resolution() retention.Resolution
-
-	// Series contains the returned data
-	Series() Series
-}
-
-// NewQueryResult returns a new QueryResult for the given resolution and series
-func NewQueryResult(r retention.Resolution, s Series) QueryResult {
-	return queryResult{r: r, s: s}
-}
-
-type queryResult struct {
-	r retention.Resolution
-	s Series
-}
-
-func (r queryResult) Resolution() retention.Resolution { return r.r }
-func (r queryResult) Series() Series                   { return r.s }
