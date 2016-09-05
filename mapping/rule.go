@@ -16,17 +16,15 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package storage
+package mapping
 
 import (
 	"time"
-
-	"github.com/m3db/m3x/close"
 )
 
-// A MappingRule defines which cluster holds the datapoints for a shard within
+// A Rule defines which cluster holds the datapoints for a shard within
 // a given timeframe
-type MappingRule interface {
+type Rule interface {
 	// Cluster is the name of the cluster that is targeted by this mapping
 	Cluster() string
 
@@ -45,17 +43,4 @@ type MappingRule interface {
 	// Will inherently fall after ReadCutoverTime, to account for configuration
 	// changes reaching writers ahead of readers.
 	WriteCutoverTime() time.Time
-}
-
-// MappingRuleIter is an iterator over MappingRules.  Allows provider to
-// control how these are stored internally
-type MappingRuleIter interface {
-	xclose.Closer
-
-	// Next moves to the next mapping, returning false if there are no more
-	// mappings
-	Next() bool
-
-	// Current returns the current mapping
-	Current() MappingRule
 }

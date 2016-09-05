@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/m3db/m3storage/mapping"
 	"github.com/m3db/m3x/log"
 	"github.com/m3db/m3x/time"
 
@@ -128,7 +129,7 @@ func TestQueryPlanner_Plan(t *testing.T) {
 	}
 }
 
-type fakeMappingRuleProvider []MappingRule
+type fakeMappingRuleProvider []mapping.Rule
 
 func (scm fakeMappingRuleProvider) QueryMappings(shard uint32, start, end time.Time) (MappingRuleIter, error) {
 	return &fakeMappingRuleIter{
@@ -146,7 +147,7 @@ func (scm fakeMappingRuleProvider) WatchCluster(database, cluster string) (Clust
 func (scm fakeMappingRuleProvider) Close() error { return nil }
 
 type fakeMappingRuleIter struct {
-	mappings      []MappingRule
+	mappings      []mapping.Rule
 	current, next int
 }
 
@@ -159,7 +160,7 @@ func (i *fakeMappingRuleIter) Next() bool {
 	return true
 }
 
-func (i *fakeMappingRuleIter) Current() MappingRule {
+func (i *fakeMappingRuleIter) Current() mapping.Rule {
 	if i.current < len(i.mappings) {
 		return i.mappings[i.current]
 	}
