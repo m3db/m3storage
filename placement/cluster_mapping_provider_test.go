@@ -67,6 +67,8 @@ func TestProvider_QueryMappings(t *testing.T) {
 		queries  []query
 	}
 
+	config := newTestConfig("h1")
+
 	tests := []test{
 		test{
 			scenario: "no databases",
@@ -210,7 +212,7 @@ func TestProvider_QueryMappings(t *testing.T) {
 		for dbname, joins := range test.changes.joins {
 			changed = true
 			for _, join := range joins {
-				require.NoError(t, ts.sp.JoinCluster(dbname, join, []byte("meaningless")),
+				require.NoError(t, ts.sp.JoinCluster(dbname, join, config),
 					"cannot join cluster %s:%s", dbname, join.Name)
 			}
 		}
@@ -293,7 +295,7 @@ func TestProvider_WatchCluster(t *testing.T) {
 		Name:   "c1",
 		Weight: 256,
 		Type:   "m3db",
-	}, newTestConfigBytes(t, "h1", "h2", "h3")))
+	}, newTestConfig("h1", "h2", "h3")))
 	ts.commitLatest()
 	prov.update(ts.latestPlacement())
 
@@ -309,8 +311,7 @@ func TestProvider_WatchCluster(t *testing.T) {
 	require.Equal(t, []string{"h1", "h2", "h3"}, cfg.Hosts)
 
 	// Update the cluster config and make sure it propagates
-	require.NoError(t, ts.sp.UpdateClusterConfig("wow", "c1",
-		newTestConfigBytes(t, "h1", "h2")))
+	require.NoError(t, ts.sp.UpdateClusterConfig("wow", "c1", newTestConfig("h1", "h2")))
 	ts.commitLatest()
 
 	<-w.C()
@@ -370,7 +371,7 @@ func benchmarkNClusterSplits(b *testing.B, numSplits, expectedLoMappings int) {
 			Name:   fmt.Sprintf("c%d", i),
 			Weight: uint32(testShards),
 			Type:   "m3db",
-		}, []byte("meaningless")))
+		}, newTestConfig("h1")))
 
 		ts.commitLatest()
 	}

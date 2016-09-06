@@ -44,7 +44,7 @@ func TestClusters_Watch(t *testing.T) {
 			Name: "c1",
 			Type: "m3db",
 		},
-		Config: newTestConfigBytes(t, "h1", "h2", "h3"),
+		Config: newTestConfigBytes("h1", "h2", "h3"),
 	}, 43))
 
 	// Register an initial watch and make sure we get the first value
@@ -68,7 +68,7 @@ func TestClusters_Watch(t *testing.T) {
 			Name: "c1",
 			Type: "m3db",
 		},
-		Config: newTestConfigBytes(t, "h1", "h2"),
+		Config: newTestConfigBytes("h1", "h2"),
 	}, 45))
 
 	// Make sure the watch is triggered
@@ -87,7 +87,7 @@ func TestClusters_Watch(t *testing.T) {
 			Name: "c1",
 			Type: "m3db",
 		},
-		Config: newTestConfigBytes(t, "h1", "h2"),
+		Config: newTestConfigBytes("h1", "h2"),
 	}, 44))
 
 	updated := false

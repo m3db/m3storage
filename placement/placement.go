@@ -75,7 +75,7 @@ type StoragePlacement interface {
 
 	// JoinCluster adds a new cluster to an existing database and rebalances
 	// shards onto that cluster
-	JoinCluster(db string, c schema.ClusterProperties, config []byte) error
+	JoinCluster(db string, c schema.ClusterProperties, config proto.Message) error
 
 	// DecommissionCluster marks a cluster as being decomissioned, moving
 	// its shards to other clusters.  Read traffic will continue to be directed
@@ -83,7 +83,7 @@ type StoragePlacement interface {
 	DecommissionCluster(db, c string) error
 
 	// UpdateClusterConfig updates the configurtion for a cluster
-	UpdateClusterConfig(db, c string, config []byte) error
+	UpdateClusterConfig(db, c string, config proto.Message) error
 
 	// CommitChanges commits and propagates any unapplied changes
 	CommitChanges(version int, opts CommitOptions) error
@@ -210,7 +210,7 @@ func (sp storagePlacement) AddDatabase(db schema.DatabaseProperties) error {
 	}))
 }
 
-func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties, config []byte) error {
+func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties, config proto.Message) error {
 	if c.Name == "" {
 		return errClusterInvalidName
 	}
@@ -221,6 +221,11 @@ func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties
 
 	if c.Type == "" {
 		return errClusterInvalidType
+	}
+
+	cfgbytes, err := proto.Marshal(config)
+	if err != nil {
+		return err
 	}
 
 	return sp.mgr.Change(modificationFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
@@ -251,7 +256,7 @@ func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties
 				Status:        schema.ClusterStatus_ACTIVE,
 				CreatedAt:     xtime.ToUnixMillis(sp.clock.Now()),
 				LastUpdatedAt: xtime.ToUnixMillis(sp.clock.Now()),
-				Config:        config,
+				Config:        cfgbytes,
 			},
 		}
 		return nil
@@ -289,7 +294,12 @@ func (sp storagePlacement) DecommissionCluster(dbName, cName string) error {
 	}))
 }
 
-func (sp storagePlacement) UpdateClusterConfig(dbName, cName string, config []byte) error {
+func (sp storagePlacement) UpdateClusterConfig(dbName, cName string, config proto.Message) error {
+	cfgbytes, err := proto.Marshal(config)
+	if err != nil {
+		return err
+	}
+
 	return sp.mgr.Change(modificationFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
 		db, dbChanges := sp.findDatabase(p, changes, dbName)
 		if db == nil {
@@ -302,14 +312,14 @@ func (sp storagePlacement) UpdateClusterConfig(dbName, cName string, config []by
 			if dbChanges.ClusterConfigUpdates == nil {
 				dbChanges.ClusterConfigUpdates = make(map[string][]byte)
 			}
-			dbChanges.ClusterConfigUpdates[cName] = config
+			dbChanges.ClusterConfigUpdates[cName] = cfgbytes
 			return nil
 		}
 
 		// If this is a pending join, update it's config in place
 		if joining := dbChanges.Joins[cName]; joining != nil {
 			sp.log.Infof("updating config for pending cluster %s:%s", dbName, cName)
-			joining.Cluster.Config = config
+			joining.Cluster.Config = cfgbytes
 			return nil
 		}
 
