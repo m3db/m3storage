@@ -263,7 +263,7 @@ func (cm *connectionManager) openConn(cl Cluster) (Connection, error) {
 
 // registerConn registers a newly opened connection to the given database cluster
 func (cm *connectionManager) registerConn(cl Cluster, cw ClusterWatch, conn Connection) error {
-	key := fmtConnKey(cl.Database(), cl.Name())
+	key := fmtConnKeyFromCluster(cl)
 
 	cm.Lock()
 	defer cm.Unlock()
@@ -297,7 +297,7 @@ func (cm *connectionManager) watchCluster(cl Cluster, cw ClusterWatch, conn Conn
 
 // reconfigureConn reconfigures a connection with new cluster configuration
 func (cm *connectionManager) reconfigureConn(cl Cluster, existing Connection) error {
-	key := fmtConnKey(cl.Database(), cl.Name())
+	key := fmtConnKeyFromCluster(cl)
 	d := cm.drivers[cl.Type().Name()]
 	if d == nil {
 		cm.log.Errorf("received update v%d for %s:%s: unsupported storage type %s",
@@ -390,3 +390,4 @@ func (opts connectionManagerOptions) Drivers(d []Driver) ConnectionManagerOption
 }
 
 func fmtConnKey(database, cluster string) string { return fmt.Sprintf("%s:%s", database, cluster) }
+func fmtConnKeyFromCluster(cl Cluster) string    { return fmtConnKey(cl.Database(), cl.Name()) }
