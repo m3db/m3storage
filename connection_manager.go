@@ -31,8 +31,8 @@ import (
 )
 
 var (
-	errClosed          = errors.New("closed")
-	errTypeUnsupported = errors.New("unsupported storage type")
+	errClosed                 = errors.New("closed")
+	errStorageTypeUnsupported = errors.New("unsupported storage type")
 
 	errConnectionManagerLogRequired      = errors.New("logger required")
 	errConnectionManagerDriversRequired  = errors.New("at least 1 driver required")
@@ -248,7 +248,7 @@ func (cm *connectionManager) openConn(cl Cluster) (Connection, error) {
 	if d == nil {
 		cm.log.Errorf("unsupported driver type %s for %s:%s",
 			cl.Type().Name(), cl.Database(), cl.Name())
-		return nil, errTypeUnsupported
+		return nil, errStorageTypeUnsupported
 	}
 
 	cfg := proto.Clone(d.ConfigType())
@@ -303,7 +303,7 @@ func (cm *connectionManager) reconfigureConn(cl Cluster, existing Connection) er
 	if d == nil {
 		cm.log.Errorf("received update v%d for %s:%s: unsupported storage type %s",
 			cl.Config().Version(), cl.Database(), cl.Name(), cl.Type().Name())
-		return errTypeUnsupported
+		return errStorageTypeUnsupported
 	}
 
 	cm.log.Infof("received update v%d for %s:%s", cl.Config().Version(), cl.Database(), cl.Name())

@@ -260,7 +260,7 @@ func TestConnectionManagerGetConnectionUnsupportedType(t *testing.T) {
 	d.unblockOpen()
 
 	conn, err := m.GetConnection("wow", "c1")
-	require.Equal(t, errTypeUnsupported, err)
+	require.Equal(t, errStorageTypeUnsupported, err)
 	require.Nil(t, conn)
 }
 
