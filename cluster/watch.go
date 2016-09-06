@@ -16,50 +16,42 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package storage
+package cluster
 
 import (
-	"time"
-
-	"github.com/golang/protobuf/proto"
+	"github.com/m3db/m3x/close"
+	"github.com/m3db/m3x/watch"
 )
 
-// A Config is configuration for a cluster
-type Config interface {
-	// Version is the version of the configuration
-	Version() int
+// A Watch watches for config changes on a cluster
+type Watch interface {
+	xclose.Closer
 
-	// Unmarshal unmarshals the configuration
-	Unmarshal(c proto.Message) error
+	// C is the channel receiving notifications of config changes
+	C() <-chan struct{}
+
+	// Get returns the current state of the cluster
+	Get() Cluster
 }
 
-// A Type defines a type of storage (m3db, hbase, etc)
-type Type interface {
-	// Name is the name of the storage type
-	Name() string
+// NewWatch wraps a type-specific Watch around a generic Watch
+func NewWatch(w xwatch.Watch) Watch { return &watch{w} }
+
+type watch struct {
+	xwatch.Watch
 }
 
-// A Database holds datapoints up to a certain amount of time
-type Database interface {
-	// Name is the name of the database
-	Name() string
+func (w *watch) C() <-chan struct{} { return w.Watch.C() }
 
-	// MaxRetention is the maximum amount of type datapoints will be retained in
-	// this database
-	MaxRetention() time.Duration
+func (w *watch) Get() Cluster {
+	if c := w.Watch.Get(); c != nil {
+		return c.(Cluster)
+	}
+
+	return nil
 }
 
-// A Cluster defines a cluster of nodes within a database
-type Cluster interface {
-	// Name is the name of the cluster
-	Name() string
-
-	// Type is the storage type for the cluster
-	Type() Type
-
-	// Config is the cluster's configuration
-	Config() Config
-
-	// Database is the name of the database to which the cluster belongs
-	Database() string
+func (w *watch) Close() error {
+	w.Watch.Close()
+	return nil
 }
