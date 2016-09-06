@@ -286,7 +286,6 @@ func (cm *connectionManager) registerConn(cl Cluster, cw ClusterWatch, conn Conn
 
 // watchCluster monitors the given cluster for config updates
 func (cm *connectionManager) watchCluster(cl Cluster, cw ClusterWatch, conn Connection) {
-
 	cm.log.Infof("watching %s:%s", cl.Database(), cl.Name())
 	for range cw.C() {
 		cm.reconfigureConn(cw.Get(), conn)
