@@ -19,13 +19,13 @@
 package storage
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/facebookgo/clock"
 	"github.com/m3db/m3x/log"
 	"github.com/m3db/m3x/time"
-	_ "github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -156,12 +156,17 @@ func TestBuildClusterQueryPlan(t *testing.T) {
 
 type fakeClusterMappingProvider []ClusterMapping
 
-func (scm fakeClusterMappingProvider) QueryMappings(shard uint32, start, end time.Time) ClusterMappingIter {
+func (scm fakeClusterMappingProvider) QueryMappings(shard uint32, start, end time.Time) (ClusterMappingIter, error) {
 	return &fakeClusterMappingIter{
 		mappings: scm,
 		current:  0,
 		next:     0,
-	}
+	}, nil
+}
+
+func (scm fakeClusterMappingProvider) WatchCluster(database, cluster string) (ClusterWatch, error) {
+	// TODO(mmihic): Support later
+	return nil, errors.New("no such cluster")
 }
 
 func (scm fakeClusterMappingProvider) Close() error { return nil }
@@ -188,12 +193,15 @@ func (i *fakeClusterMappingIter) Current() ClusterMapping {
 	return nil
 }
 
+func (i *fakeClusterMappingIter) Close() error { return nil }
+
 type clusterMapping struct {
 	readCutoverTime, writeCutoverTime, cutoffTime time.Time
-	cluster                                       string
+	cluster, database                             string
 }
 
 func (m clusterMapping) ReadCutoverTime() time.Time  { return m.readCutoverTime }
 func (m clusterMapping) WriteCutoverTime() time.Time { return m.writeCutoverTime }
 func (m clusterMapping) CutoffTime() time.Time       { return m.cutoffTime }
 func (m clusterMapping) Cluster() string             { return m.cluster }
+func (m clusterMapping) Database() string            { return m.database }

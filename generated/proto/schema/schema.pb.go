@@ -21,6 +21,7 @@ It has these top-level messages:
 	ClusterJoin
 	ClusterDecommission
 	ShardTransitionRule
+	ClusterConfigUpdateRule
 	ClusterMappingRuleSet
 */
 package schema
@@ -190,9 +191,11 @@ func (*ClusterProperties) ProtoMessage()    {}
 
 // Cluster is the metadata for a cluster
 type Cluster struct {
-	Properties *ClusterProperties `protobuf:"bytes,1,opt,name=properties" json:"properties,omitempty"`
-	Status     ClusterStatus      `protobuf:"varint,2,opt,name=status,enum=schema.ClusterStatus" json:"status,omitempty"`
-	CreatedAt  int64              `protobuf:"varint,3,opt,name=created_at" json:"created_at,omitempty"`
+	Properties    *ClusterProperties `protobuf:"bytes,1,opt,name=properties" json:"properties,omitempty"`
+	Status        ClusterStatus      `protobuf:"varint,2,opt,name=status,enum=schema.ClusterStatus" json:"status,omitempty"`
+	CreatedAt     int64              `protobuf:"varint,3,opt,name=created_at" json:"created_at,omitempty"`
+	LastUpdatedAt int64              `protobuf:"varint,4,opt,name=last_updated_at" json:"last_updated_at,omitempty"`
+	Config        []byte             `protobuf:"bytes,5,opt,name=config,proto3" json:"config,omitempty"`
 }
 
 func (m *Cluster) Reset()         { *m = Cluster{} }
@@ -208,8 +211,9 @@ func (m *Cluster) GetProperties() *ClusterProperties {
 
 // DatabaseChanges capture pending changes to the database
 type DatabaseChanges struct {
-	Joins   map[string]*ClusterJoin         `protobuf:"bytes,1,rep,name=joins" json:"joins,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	Decomms map[string]*ClusterDecommission `protobuf:"bytes,2,rep,name=decomms" json:"decomms,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Joins                map[string]*ClusterJoin         `protobuf:"bytes,1,rep,name=joins" json:"joins,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Decomms              map[string]*ClusterDecommission `protobuf:"bytes,2,rep,name=decomms" json:"decomms,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	ClusterConfigUpdates map[string][]byte               `protobuf:"bytes,3,rep,name=cluster_config_updates" json:"cluster_config_updates,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value,proto3"`
 }
 
 func (m *DatabaseChanges) Reset()         { *m = DatabaseChanges{} }
@@ -226,6 +230,13 @@ func (m *DatabaseChanges) GetJoins() map[string]*ClusterJoin {
 func (m *DatabaseChanges) GetDecomms() map[string]*ClusterDecommission {
 	if m != nil {
 		return m.Decomms
+	}
+	return nil
+}
+
+func (m *DatabaseChanges) GetClusterConfigUpdates() map[string][]byte {
+	if m != nil {
+		return m.ClusterConfigUpdates
 	}
 	return nil
 }
@@ -276,11 +287,22 @@ func (m *ShardTransitionRule) GetShards() *ShardSet {
 	return nil
 }
 
+// ClusterConfigUpdateRule indicates that a cluster has had its
+// configuration changed
+type ClusterConfigUpdateRule struct {
+	ClusterName string `protobuf:"bytes,1,opt,name=cluster_name" json:"cluster_name,omitempty"`
+}
+
+func (m *ClusterConfigUpdateRule) Reset()         { *m = ClusterConfigUpdateRule{} }
+func (m *ClusterConfigUpdateRule) String() string { return proto.CompactTextString(m) }
+func (*ClusterConfigUpdateRule) ProtoMessage()    {}
+
 // ClusterMappingRuleSet is a set of cluster mapping rules built off a
 // particular version
 type ClusterMappingRuleSet struct {
-	ForVersion       int32                  `protobuf:"varint,1,opt,name=for_version" json:"for_version,omitempty"`
-	ShardTransitions []*ShardTransitionRule `protobuf:"bytes,2,rep,name=shard_transitions" json:"shard_transitions,omitempty"`
+	ForVersion           int32                      `protobuf:"varint,1,opt,name=for_version" json:"for_version,omitempty"`
+	ShardTransitions     []*ShardTransitionRule     `protobuf:"bytes,2,rep,name=shard_transitions" json:"shard_transitions,omitempty"`
+	ClusterConfigUpdates []*ClusterConfigUpdateRule `protobuf:"bytes,3,rep,name=cluster_config_updates" json:"cluster_config_updates,omitempty"`
 }
 
 func (m *ClusterMappingRuleSet) Reset()         { *m = ClusterMappingRuleSet{} }
@@ -290,6 +312,13 @@ func (*ClusterMappingRuleSet) ProtoMessage()    {}
 func (m *ClusterMappingRuleSet) GetShardTransitions() []*ShardTransitionRule {
 	if m != nil {
 		return m.ShardTransitions
+	}
+	return nil
+}
+
+func (m *ClusterMappingRuleSet) GetClusterConfigUpdates() []*ClusterConfigUpdateRule {
+	if m != nil {
+		return m.ClusterConfigUpdates
 	}
 	return nil
 }

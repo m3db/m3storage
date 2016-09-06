@@ -75,12 +75,15 @@ type StoragePlacement interface {
 
 	// JoinCluster adds a new cluster to an existing database and rebalances
 	// shards onto that cluster
-	JoinCluster(db string, c schema.ClusterProperties) error
+	JoinCluster(db string, c schema.ClusterProperties, config proto.Message) error
 
 	// DecommissionCluster marks a cluster as being decomissioned, moving
 	// its shards to other clusters.  Read traffic will continue to be directed
 	// to this cluster until the max retention period for this database expires
 	DecommissionCluster(db, c string) error
+
+	// UpdateClusterConfig updates the configurtion for a cluster
+	UpdateClusterConfig(db, c string, config proto.Message) error
 
 	// CommitChanges commits and propagates any unapplied changes
 	CommitChanges(version int, opts CommitOptions) error
@@ -207,7 +210,7 @@ func (sp storagePlacement) AddDatabase(db schema.DatabaseProperties) error {
 	}))
 }
 
-func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties) error {
+func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties, config proto.Message) error {
 	if c.Name == "" {
 		return errClusterInvalidName
 	}
@@ -218,6 +221,11 @@ func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties
 
 	if c.Type == "" {
 		return errClusterInvalidType
+	}
+
+	cfgbytes, err := proto.Marshal(config)
+	if err != nil {
+		return err
 	}
 
 	return sp.mgr.Change(modificationFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
@@ -244,9 +252,11 @@ func (sp storagePlacement) JoinCluster(dbName string, c schema.ClusterProperties
 		sp.log.Infof("joining cluster %s (weight:%d, type:%s) to database %s", c.Name, c.Weight, c.Type, dbName)
 		dbChanges.Joins[c.Name] = &schema.ClusterJoin{
 			Cluster: &schema.Cluster{
-				Properties: &c,
-				Status:     schema.ClusterStatus_ACTIVE,
-				CreatedAt:  xtime.ToUnixMillis(sp.clock.Now()),
+				Properties:    &c,
+				Status:        schema.ClusterStatus_ACTIVE,
+				CreatedAt:     xtime.ToUnixMillis(sp.clock.Now()),
+				LastUpdatedAt: xtime.ToUnixMillis(sp.clock.Now()),
+				Config:        cfgbytes,
 			},
 		}
 		return nil
@@ -266,19 +276,53 @@ func (sp storagePlacement) DecommissionCluster(dbName, cName string) error {
 				dbChanges.Decomms = make(map[string]*schema.ClusterDecommission)
 			}
 
-			sp.log.Infof("decommissioning cluster %s in database %s", cName, dbName)
+			sp.log.Infof("decommissioning cluster %s:%s", dbName, cName)
 			dbChanges.Decomms[cName] = &schema.ClusterDecommission{
 				ClusterName: cName,
 			}
+			delete(dbChanges.ClusterConfigUpdates, cName) // Delete any pending changes
 			return nil
 		}
 
 		// If this is a pending join, delete from the join list
 		if _, joining := dbChanges.Joins[cName]; joining {
-			sp.log.Infof("removing pending cluster %s from database %s", cName, dbName)
+			sp.log.Infof("removing pending cluster %s:%s", dbName, cName)
 			delete(dbChanges.Joins, cName)
 			return nil
 		}
+		return errClusterNotFound
+	}))
+}
+
+func (sp storagePlacement) UpdateClusterConfig(dbName, cName string, config proto.Message) error {
+	cfgbytes, err := proto.Marshal(config)
+	if err != nil {
+		return err
+	}
+
+	return sp.mgr.Change(modificationFn(func(p *schema.Placement, changes *schema.PlacementChanges) error {
+		db, dbChanges := sp.findDatabase(p, changes, dbName)
+		if db == nil {
+			return errDatabaseNotFound
+		}
+
+		// If this is an existing cluster, add cluster config update
+		if _, existing := db.Clusters[cName]; existing {
+			sp.log.Infof("updating config for existing cluster %s:%s", dbName, cName)
+			if dbChanges.ClusterConfigUpdates == nil {
+				dbChanges.ClusterConfigUpdates = make(map[string][]byte)
+			}
+			dbChanges.ClusterConfigUpdates[cName] = cfgbytes
+			return nil
+		}
+
+		// If this is a pending join, update it's config in place
+		if joining := dbChanges.Joins[cName]; joining != nil {
+			sp.log.Infof("updating config for pending cluster %s:%s", dbName, cName)
+			joining.Cluster.Config = cfgbytes
+			return nil
+		}
+
 		return errClusterNotFound
 	}))
 }
@@ -372,6 +416,15 @@ func (sp storagePlacement) commitDatabaseChanges(
 	opts CommitOptions) error {
 
 	sp.log.Infof("processing changes to database %s", db.Properties.Name)
+
+	// Update any cluster configurations that need to be applied
+	for cname, config := range changes.ClusterConfigUpdates {
+		sp.log.Infof("updating config for cluster %s:%s", db.Properties.Name, cname)
+		db.Clusters[cname].Config = config
+		db.Clusters[cname].LastUpdatedAt = xtime.ToUnixMillis(sp.clock.Now())
+	}
+
+	// Compute shard reassignments
 	var (
 		unowned       bitset.BitSet
 		shardCutoffs  = make(map[string]*bitset.BitSet)
@@ -558,11 +611,22 @@ func (sp storagePlacement) commitDatabaseChanges(
 		}
 	}
 
-	// ...sort the transitions so they have a deterministic ordering...
+	// ...and sort the transitions so they have a deterministic ordering
 	sort.Sort(shardTransitionsByCluster(rules.ShardTransitions))
 
-	// ...and add to the list of mappings for the database
+	// Generate config update rules for any clusters that have been modified...
+	for cname := range changes.ClusterConfigUpdates {
+		rules.ClusterConfigUpdates = append(rules.ClusterConfigUpdates, &schema.ClusterConfigUpdateRule{
+			ClusterName: cname,
+		})
+	}
+
+	// ...and sort these by cluster name so they have a deterministic ordering
+	sort.Sort(clusterConfigUpdatesByCluster(rules.ClusterConfigUpdates))
+
+	// Finally, add everything to the database mapping rules
 	db.MappingRules = append(db.MappingRules, rules)
+	db.LastUpdatedAt = xtime.ToUnixMillis(sp.clock.Now())
 	return nil
 }
 
@@ -717,7 +781,7 @@ func (dbs databasesByRetention) Less(i, j int) bool {
 	return dbs[i].Properties.MaxRetentionInSecs < dbs[j].Properties.MaxRetentionInSecs
 }
 
-// sort.Interface for ShardTransitionRule by to cluster name
+// sort.Interface for ShardTransitionRule by cluster name
 type shardTransitionsByCluster []*schema.ShardTransitionRule
 
 func (c shardTransitionsByCluster) Len() int      { return len(c) }
@@ -733,6 +797,15 @@ func (c shardTransitionsByCluster) Less(i, j int) bool {
 	}
 
 	return strings.Compare(c[i].FromCluster, c[j].FromCluster) < 0
+}
+
+// sort.Interface for ClusterConfigUpdateRule by cluster name
+type clusterConfigUpdatesByCluster []*schema.ClusterConfigUpdateRule
+
+func (c clusterConfigUpdatesByCluster) Len() int      { return len(c) }
+func (c clusterConfigUpdatesByCluster) Swap(i, j int) { c[i], c[j] = c[j], c[i] }
+func (c clusterConfigUpdatesByCluster) Less(i, j int) bool {
+	return strings.Compare(c[i].ClusterName, c[j].ClusterName) < 0
 }
 
 // NewShardSet returns a new shard set initialized with a list of shards

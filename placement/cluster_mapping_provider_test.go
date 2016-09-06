@@ -24,13 +24,14 @@ import (
 	"time"
 
 	"github.com/m3db/m3storage"
+	"github.com/m3db/m3storage/generated/proto/configtest"
 	"github.com/m3db/m3storage/generated/proto/schema"
 	"github.com/m3db/m3x/log"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestQueryMappings(t *testing.T) {
+func TestProvider_QueryMappings(t *testing.T) {
 	var (
 		shortRetention  = time.Hour * 12
 		mediumRetention = time.Hour * 24 * 7
@@ -43,8 +44,7 @@ func TestQueryMappings(t *testing.T) {
 		ts   = newPlacementTestSuite(t)
 		prov = newTestClusterMappingProvider(ts)
 
-		now    = ts.clock.Now()
-		notSet = time.Time{}
+		now = ts.clock.Now()
 	)
 
 	defer prov.Close()
@@ -66,6 +66,8 @@ func TestQueryMappings(t *testing.T) {
 		changes  changes
 		queries  []query
 	}
+
+	config := newTestConfig("h1")
 
 	tests := []test{
 		test{
@@ -101,10 +103,17 @@ func TestQueryMappings(t *testing.T) {
 			// all queries should hit the medium retention cluster
 			queries: []query{
 				query{0, shortRetention, []queryResult{
-					queryResult{"wow1", now.Add(readCutoverDelay), now.Add(writeCutoverDelay), notSet},
+					queryResult{
+						database: "wow",
+						cluster:  "wow1",
+						read:     now.Add(readCutoverDelay),
+						write:    now.Add(writeCutoverDelay)},
 				}},
 				query{0, longRetention, []queryResult{
-					queryResult{"wow1", now.Add(readCutoverDelay), now.Add(writeCutoverDelay), notSet},
+					queryResult{
+						database: "wow", cluster: "wow1",
+						read:  now.Add(readCutoverDelay),
+						write: now.Add(writeCutoverDelay)},
 				}},
 			},
 		},
@@ -126,19 +135,24 @@ func TestQueryMappings(t *testing.T) {
 			queries: []query{
 				query{0, shortRetention, []queryResult{
 					queryResult{
-						cluster: "wow2",
-						read:    now.Add(readCutoverDelay + time.Hour),
-						write:   now.Add(writeCutoverDelay + time.Hour),
-						cutoff:  notSet},
+						database: "wow",
+						cluster:  "wow2",
+						read:     now.Add(readCutoverDelay + time.Hour),
+						write:    now.Add(writeCutoverDelay + time.Hour)},
 
 					queryResult{
-						cluster: "wow1",
-						read:    now.Add(readCutoverDelay),
-						write:   now.Add(writeCutoverDelay),
-						cutoff:  now.Add(cutoffDelay + time.Hour)},
+						database: "wow",
+						cluster:  "wow1",
+						read:     now.Add(readCutoverDelay),
+						write:    now.Add(writeCutoverDelay),
+						cutoff:   now.Add(cutoffDelay + time.Hour)},
 				}},
 				query{4095, longRetention, []queryResult{
-					queryResult{"wow1", now.Add(readCutoverDelay), now.Add(writeCutoverDelay), notSet},
+					queryResult{
+						database: "wow",
+						cluster:  "wow1",
+						read:     now.Add(readCutoverDelay),
+						write:    now.Add(writeCutoverDelay)},
 				}},
 			},
 		},
@@ -158,28 +172,29 @@ func TestQueryMappings(t *testing.T) {
 			queries: []query{
 				query{0, shortRetention, []queryResult{
 					queryResult{
-						cluster: "wow4",
-						read:    now.Add(readCutoverDelay + time.Hour*2),
-						write:   now.Add(writeCutoverDelay + time.Hour*2),
-						cutoff:  notSet},
+						database: "wow",
+						cluster:  "wow4",
+						read:     now.Add(readCutoverDelay + time.Hour*2),
+						write:    now.Add(writeCutoverDelay + time.Hour*2)},
 					queryResult{
-						cluster: "wow2",
-						read:    now.Add(readCutoverDelay + time.Hour),
-						write:   now.Add(writeCutoverDelay + time.Hour),
-						cutoff:  now.Add(cutoffDelay + time.Hour*2)},
+						database: "wow",
+						cluster:  "wow2",
+						read:     now.Add(readCutoverDelay + time.Hour),
+						write:    now.Add(writeCutoverDelay + time.Hour),
+						cutoff:   now.Add(cutoffDelay + time.Hour*2)},
 					queryResult{
-						cluster: "wow1",
-						read:    now.Add(readCutoverDelay),
-						write:   now.Add(writeCutoverDelay),
-						cutoff:  now.Add(cutoffDelay + time.Hour)},
+						database: "wow",
+						cluster:  "wow1",
+						read:     now.Add(readCutoverDelay),
+						write:    now.Add(writeCutoverDelay),
+						cutoff:   now.Add(cutoffDelay + time.Hour)},
 				}},
 				query{4095, longRetention, []queryResult{
 					queryResult{
-						cluster: "wow1",
-						read:    now.Add(readCutoverDelay),
-						write:   now.Add(writeCutoverDelay),
-						cutoff:  notSet,
-					},
+						database: "wow",
+						cluster:  "wow1",
+						read:     now.Add(readCutoverDelay),
+						write:    now.Add(writeCutoverDelay)},
 				}},
 			},
 		},
@@ -197,7 +212,7 @@ func TestQueryMappings(t *testing.T) {
 		for dbname, joins := range test.changes.joins {
 			changed = true
 			for _, join := range joins {
-				require.NoError(t, ts.sp.JoinCluster(dbname, join),
+				require.NoError(t, ts.sp.JoinCluster(dbname, join, config),
 					"cannot join cluster %s:%s", dbname, join.Name)
 			}
 		}
@@ -220,10 +235,13 @@ func TestQueryMappings(t *testing.T) {
 
 		// run queries and compare results
 		for n, q := range test.queries {
-			iter := prov.QueryMappings(q.shard, ts.clock.Now().Add(-q.retention), ts.clock.Now())
-			results := collectMappings(iter)
-			require.Equal(t, len(q.results), len(results), "bad results for %s query %d", test.scenario, n)
+			iter, err := prov.QueryMappings(q.shard, ts.clock.Now().Add(-q.retention), ts.clock.Now())
+			require.NoError(t, err)
 
+			results := collectMappings(iter)
+			require.NoError(t, iter.Close())
+
+			require.Equal(t, len(q.results), len(results), "bad results for %s query %d", test.scenario, n)
 			for i := range results {
 				r1, r2 := q.results[i], results[i]
 				requireEqualClusterMappings(t, r1, r2, fmt.Sprintf("bad result %d for %s query %d", i, test.scenario, n))
@@ -232,31 +250,102 @@ func TestQueryMappings(t *testing.T) {
 	}
 }
 
-func Benchmark1Cluster(b *testing.B) {
+func TestProvider_WatchClusterNonExistentDatabase(t *testing.T) {
+	ts := newPlacementTestSuite(t)
+	prov := newTestClusterMappingProvider(ts)
+
+	defer prov.Close()
+
+	w, err := prov.WatchCluster("foo", "c1")
+	require.Equal(t, errDatabaseNotFound, err)
+	require.Nil(t, w)
+}
+
+func TestProvider_WatchClusterNonExistentCluster(t *testing.T) {
+	ts := newPlacementTestSuite(t)
+	prov := newTestClusterMappingProvider(ts)
+
+	defer prov.Close()
+
+	require.NoError(t, ts.sp.AddDatabase(schema.DatabaseProperties{
+		Name:               "wow",
+		NumShards:          int32(testShards),
+		MaxRetentionInSecs: int32(time.Hour * 24 / time.Second),
+	}))
+	ts.commitLatest()
+	prov.update(ts.latestPlacement())
+
+	w, err := prov.WatchCluster("wow", "c1")
+	require.Equal(t, errClusterNotFound, err)
+	require.Nil(t, w)
+}
+
+func TestProvider_WatchCluster(t *testing.T) {
+	ts := newPlacementTestSuite(t)
+	prov := newTestClusterMappingProvider(ts)
+
+	defer prov.Close()
+
+	require.NoError(t, ts.sp.AddDatabase(schema.DatabaseProperties{
+		Name:               "wow",
+		NumShards:          int32(testShards),
+		MaxRetentionInSecs: int32(time.Hour * 24 / time.Second),
+	}))
+	require.NoError(t, ts.sp.JoinCluster("wow", schema.ClusterProperties{
+		Name:   "c1",
+		Weight: 256,
+		Type:   "m3db",
+	}, newTestConfig("h1", "h2", "h3")))
+	ts.commitLatest()
+	prov.update(ts.latestPlacement())
+
+	// Retrieve the cluster config and confirm it is the correct version
+	w, err := prov.WatchCluster("wow", "c1")
+	require.NoError(t, err)
+
+	var cfg configtest.TestConfig
+	<-w.C()
+	c := w.Get()
+	require.Equal(t, 1, c.Config().Version())
+	require.NoError(t, c.Config().Unmarshal(&cfg))
+	require.Equal(t, []string{"h1", "h2", "h3"}, cfg.Hosts)
+
+	// Update the cluster config and make sure it propagates
+	require.NoError(t, ts.sp.UpdateClusterConfig("wow", "c1", newTestConfig("h1", "h2")))
+	ts.commitLatest()
+
+	<-w.C()
+	c = w.Get()
+	require.Equal(t, 2, c.Config().Version())
+	require.NoError(t, c.Config().Unmarshal(&cfg))
+	require.Equal(t, []string{"h1", "h2"}, cfg.Hosts)
+}
+
+func BenchmarkProvider_1Cluster(b *testing.B) {
 	benchmarkNClusterSplits(b, 1, 1)
 }
 
-func Benchmark2ClusterSplits(b *testing.B) {
+func BenchmarkProvider_2ClusterSplits(b *testing.B) {
 	benchmarkNClusterSplits(b, 2, 2)
 }
 
-func Benchmark8ClusterSplits(b *testing.B) {
+func BenchmarkProvider_8ClusterSplits(b *testing.B) {
 	benchmarkNClusterSplits(b, 8, 8)
 }
 
-func Benchmark32ClusterSplits(b *testing.B) {
+func BenchmarkProvider_32ClusterSplits(b *testing.B) {
 	benchmarkNClusterSplits(b, 32, 32)
 }
 
-func Benchmark64ClusterSplits(b *testing.B) {
+func BenchmarkProvider_64ClusterSplits(b *testing.B) {
 	benchmarkNClusterSplits(b, 64, 60)
 }
 
-func Benchmark128ClusterSplits(b *testing.B) {
+func BenchmarkProvider_128ClusterSplits(b *testing.B) {
 	benchmarkNClusterSplits(b, 128, 103)
 }
 
-func Benchmark256ClusterSplits(b *testing.B) {
+func BenchmarkProvider_256ClusterSplits(b *testing.B) {
 	benchmarkNClusterSplits(b, 256, 135)
 }
 
@@ -282,7 +371,7 @@ func benchmarkNClusterSplits(b *testing.B, numSplits, expectedLoMappings int) {
 			Name:   fmt.Sprintf("c%d", i),
 			Weight: uint32(testShards),
 			Type:   "m3db",
-		}))
+		}, newTestConfig("h1")))
 
 		ts.commitLatest()
 	}
@@ -292,13 +381,20 @@ func benchmarkNClusterSplits(b *testing.B, numSplits, expectedLoMappings int) {
 
 	// confirm we have the right number of mappings with the right values...
 	start, end := ts.clock.Now().Add(-time.Hour*24), ts.clock.Now()
-	loMappings := collectMappings(prov.QueryMappings(0, start, end))
+	iter, err := prov.QueryMappings(0, start, end)
+	require.NoError(b, err)
+
+	loMappings := collectMappings(iter)
+	require.NoError(b, iter.Close())
+
 	require.Equal(b, expectedLoMappings, len(loMappings))
 
 	// ...and run the benchmark
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		collectMappings(prov.QueryMappings(0, start, end))
+		iter, _ := prov.QueryMappings(0, start, end)
+		for iter.Next() {
+		}
 	}
 }
 
@@ -314,7 +410,7 @@ func collectMappings(iter storage.ClusterMappingIter) []storage.ClusterMapping {
 func newTestClusterMappingProvider(ts *placementTestSuite) *clusterMappingProvider {
 	p, err := NewClusterMappingProvider("p", ts.kv, NewClusterMappingProviderOptions().
 		Clock(ts.clock).
-		Logger(xlog.NullLogger))
+		Logger(xlog.SimpleLogger))
 
 	require.NoError(ts.t, err)
 	prov := p.(*clusterMappingProvider)
@@ -322,7 +418,7 @@ func newTestClusterMappingProvider(ts *placementTestSuite) *clusterMappingProvid
 }
 
 type queryResult struct {
-	cluster             string
+	database, cluster   string
 	read, write, cutoff time.Time
 }
 
@@ -330,6 +426,7 @@ func (m queryResult) ReadCutoverTime() time.Time  { return m.read }
 func (m queryResult) WriteCutoverTime() time.Time { return m.write }
 func (m queryResult) CutoffTime() time.Time       { return m.cutoff }
 func (m queryResult) Cluster() string             { return m.cluster }
+func (m queryResult) Database() string            { return m.database }
 
 func requireEqualClusterMappings(t *testing.T, expected, actual storage.ClusterMapping, name string) {
 	require.Equal(t, expected.ReadCutoverTime().String(), actual.ReadCutoverTime().String(),
@@ -339,6 +436,7 @@ func requireEqualClusterMappings(t *testing.T, expected, actual storage.ClusterM
 	require.Equal(t, expected.CutoffTime().String(), actual.CutoffTime().String(),
 		"%s CutoffTime", name)
 	require.Equal(t, expected.Cluster(), actual.Cluster(), "%s Cluster", name)
+	require.Equal(t, expected.Database(), actual.Database(), "%s Database", name)
 }
 
 const (
