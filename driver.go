@@ -21,8 +21,10 @@ package storage
 import (
 	"time"
 
-	"github.com/golang/protobuf/proto"
+	"github.com/m3db/m3storage/retention"
 	"github.com/m3db/m3x/close"
+
+	"github.com/golang/protobuf/proto"
 )
 
 // A SeriesIterator is used to return datapoints from a series
@@ -42,10 +44,10 @@ type Connection interface {
 	xclose.Closer
 
 	// Read reads datapoints for the given id at the given time range and resolution
-	Read(id string, r Resolution, start, end time.Time) (SeriesIterator, error)
+	Read(id string, r retention.Resolution, start, end time.Time) (SeriesIterator, error)
 
 	// Write writes a datapoint for the given id at the given time range
-	Write(id string, r Resolution, t time.Time, value float64) error
+	Write(id string, r retention.Resolution, t time.Time, value float64) error
 }
 
 // A Driver is used to create connections to a cluster of a given storage class
