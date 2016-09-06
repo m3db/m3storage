@@ -119,10 +119,16 @@ message ClusterConfigUpdateRule {
 	string cluster_name = 1;
 }
 
+// ClusterJoinRule indicates that a new cluster has joined
+message ClusterJoinRule {
+	string cluster_name = 1;
+}
+
 // ClusterMappingRuleSet is a set of cluster mapping rules built off a
 // particular version
 message ClusterMappingRuleSet {
 	int32 for_version = 1;
 	repeated ShardTransitionRule shard_transitions = 2;
 	repeated ClusterConfigUpdateRule cluster_config_updates = 3;
+	repeated ClusterJoinRule cluster_joins = 4;
 }
