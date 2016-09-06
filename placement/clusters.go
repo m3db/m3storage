@@ -32,59 +32,65 @@ import (
 // clusters maintains information about active clusters, including watches
 type clusters struct {
 	sync.RWMutex
-	v   map[string]int              // versions of each cluster
-	w   map[string]xwatch.Watchable // watches for each cluster
+	cw  map[string]*clusterWatchable
 	log xlog.Logger
 }
 
 // newClusters create a new set of clusters
 func newClusters(log xlog.Logger) *clusters {
 	return &clusters{
-		v:   make(map[string]int),
-		w:   make(map[string]xwatch.Watchable),
+		cw:  make(map[string]*clusterWatchable),
 		log: log,
 	}
+}
+
+type clusterWatchable struct {
+	v int
+	w xwatch.Watchable
 }
 
 // watchCluster watches the given named cluster
 func (cc *clusters) watch(cname string) (storage.ClusterWatch, error) {
 	cc.RLock()
-	w, exists := cc.w[cname]
+	cw := cc.cw[cname]
 	cc.RUnlock()
 
-	if !exists {
+	if cw == nil {
 		return nil, errClusterNotFound
 	}
 
 	cc.log.Debugf("watching %s", cname)
-	_, watch, err := w.Watch()
+	_, w, err := cw.w.Watch()
 	if err != nil {
 		return nil, err
 	}
 
-	return clusterWatch{watch}, nil
+	return clusterWatch{w}, nil
 }
 
 // update updates the given cluster and notifies watches
-func (cc *clusters) update(c cluster) {
+func (cc *clusters) update(c storage.Cluster) {
 	cc.Lock()
 	defer cc.Unlock()
 
-	currentVersion, existing := cc.v[c.name]
-	if !existing {
+	cw := cc.cw[c.Name()]
+	if cw == nil {
 		// This is a new cluster - create a watch for it and set the initial value
-		cc.log.Debugf("registering new cluster %s@%d", c.name, c.config.Version())
-		w := xwatch.NewWatchable()
-		cc.w[c.name], cc.v[c.name] = w, c.config.Version()
-		w.Update(c)
+		cc.log.Debugf("registering new cluster %s@%d", c.Name(), c.Config().Version())
+		cw = &clusterWatchable{
+			w: xwatch.NewWatchable(),
+			v: c.Config().Version(),
+		}
+		cc.cw[c.Name()] = cw
+		cw.w.Update(c)
 		return
 	}
 
 	// This is an existing cluster and the version has updated, notify watches
-	if currentVersion < c.config.Version() {
-		cc.log.Debugf("update config for cluster %s from %d to %d", c.name, currentVersion, c.config.Version())
-		cc.w[c.name].Update(c)
-		cc.v[c.name] = c.config.Version()
+	if cw.v < c.Config().Version() {
+		cc.log.Debugf("update config for cluster %s from %d to %d", c.Name(), cw.v, c.Config().Version())
+		cw.v = c.Config().Version()
+		cw.w.Update(c)
 	}
 }
 
