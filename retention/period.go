@@ -16,52 +16,52 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package storage
+package retention
 
 import (
 	"fmt"
 	"time"
 )
 
-// A RetentionPeriod is a named amount of time to retain a given metric
-type RetentionPeriod interface {
+// A Period is a named amount of time to retain a given metric
+type Period interface {
 	fmt.Stringer
 
 	// Duration is the duration of the retention period
 	Duration() time.Duration
 
 	// Equal checks whether to retention periods are equal
-	Equal(other RetentionPeriod) bool
+	Equal(other Period) bool
 }
 
-// NewRetentionPeriod creates a new RetentionPeriod with the given name and duration
-func NewRetentionPeriod(duration time.Duration) RetentionPeriod {
-	return retentionPeriod{
+// NewPeriod creates a new Period with the given name and duration
+func NewPeriod(duration time.Duration) Period {
+	return period{
 		duration: duration,
 	}
 }
 
-// RetentionPeriodsByDuration is a sort.Interface for sorting RetentionPeriods by
+// PeriodsByDuration is a sort.Interface for sorting Periods by
 // Duration, with the shortest duration first
-type RetentionPeriodsByDuration []RetentionPeriod
+type PeriodsByDuration []Period
 
 // Less compares two retention periods by their duration time
-func (rr RetentionPeriodsByDuration) Less(i, j int) bool {
+func (rr PeriodsByDuration) Less(i, j int) bool {
 	return rr[i].Duration() < rr[j].Duration()
 }
 
 // Swap swaps two retention periods in the slice
-func (rr RetentionPeriodsByDuration) Swap(i, j int) { rr[i], rr[j] = rr[j], rr[i] }
+func (rr PeriodsByDuration) Swap(i, j int) { rr[i], rr[j] = rr[j], rr[i] }
 
 // Len returns the length of the retention rule slice
-func (rr RetentionPeriodsByDuration) Len() int { return len(rr) }
+func (rr PeriodsByDuration) Len() int { return len(rr) }
 
-type retentionPeriod struct {
+type period struct {
 	duration time.Duration
 }
 
-func (r retentionPeriod) String() string          { return r.duration.String() }
-func (r retentionPeriod) Duration() time.Duration { return r.duration }
-func (r retentionPeriod) Equal(other RetentionPeriod) bool {
+func (r period) String() string          { return r.duration.String() }
+func (r period) Duration() time.Duration { return r.duration }
+func (r period) Equal(other Period) bool {
 	return r.duration == other.Duration()
 }

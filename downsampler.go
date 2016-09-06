@@ -18,23 +18,16 @@
 
 package storage
 
-import (
-	"sort"
-	"testing"
-	"time"
+// A Downsampler combines multiple datapoints that appear within the
+// same time interval to produce a single downsampled result
+type Downsampler interface {
+	// Init initializes the downsampler to store results in the given values
+	Init(vals SeriesValues)
 
-	"github.com/stretchr/testify/require"
-)
+	// AddSample adds a datapoint sample to the given interval
+	AddSample(n int, v float64)
 
-func TestRetentionPeriodsByDuration(t *testing.T) {
-	periods := []RetentionPeriod{
-		NewRetentionPeriod(time.Hour * 6),
-		NewRetentionPeriod(time.Hour * 24),
-		NewRetentionPeriod(time.Hour * 12),
-	}
-
-	sort.Sort(RetentionPeriodsByDuration(periods))
-	require.Equal(t, (time.Hour * 6).String(), periods[0].Duration().String())
-	require.Equal(t, (time.Hour * 12).String(), periods[1].Duration().String())
-	require.Equal(t, (time.Hour * 24).String(), periods[2].Duration().String())
+	// Finish tells the downsampler we're complete and the final values
+	// computed (if they are not already)
+	Finish()
 }

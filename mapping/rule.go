@@ -16,39 +16,31 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package storage
+package mapping
 
 import (
 	"time"
-
-	"github.com/m3db/m3storage/retention"
 )
 
-// The Manager is the main interface into the storage system, supporting
-// queries against multiple storage clusters
-type Manager interface {
-	// Query reads datapoints for the id between two times
-	Query(id string, start, end time.Time, ds Downsampler) (QueryResult, error)
+// A Rule defines which cluster holds the datapoints for a shard within
+// a given timeframe
+type Rule interface {
+	// Cluster is the name of the cluster that is targeted by this mapping
+	Cluster() string
+
+	// Database is the name of the database that is targeted by this mapping
+	Database() string
+
+	// CutoffTime defines the time that reads from Cluster should stop.  Will
+	// inherently fall after the WriteCutoverTime, to account for configuration
+	// changes not arriving at all writers simultaneously
+	CutoffTime() time.Time
+
+	// ReadCutoverTime defines the time that reads to Cluster should begin
+	ReadCutoverTime() time.Time
+
+	// WriteCutoverTime defines the time that writes to Cluster should begin.
+	// Will inherently fall after ReadCutoverTime, to account for configuration
+	// changes reaching writers ahead of readers.
+	WriteCutoverTime() time.Time
 }
-
-// QueryResult is the result of doing a read
-type QueryResult interface {
-	// Resolution is the resolution of the returned series
-	Resolution() retention.Resolution
-
-	// Series contains the returned data
-	Series() Series
-}
-
-// NewQueryResult returns a new QueryResult for the given resolution and series
-func NewQueryResult(r retention.Resolution, s Series) QueryResult {
-	return queryResult{r: r, s: s}
-}
-
-type queryResult struct {
-	r retention.Resolution
-	s Series
-}
-
-func (r queryResult) Resolution() retention.Resolution { return r.r }
-func (r queryResult) Series() Series                   { return r.s }

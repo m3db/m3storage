@@ -16,39 +16,25 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package storage
+package retention
 
 import (
+	"sort"
+	"testing"
 	"time"
 
-	"github.com/m3db/m3storage/retention"
+	"github.com/stretchr/testify/require"
 )
 
-// The Manager is the main interface into the storage system, supporting
-// queries against multiple storage clusters
-type Manager interface {
-	// Query reads datapoints for the id between two times
-	Query(id string, start, end time.Time, ds Downsampler) (QueryResult, error)
+func TestPeriodsByDuration(t *testing.T) {
+	periods := []Period{
+		NewPeriod(time.Hour * 6),
+		NewPeriod(time.Hour * 24),
+		NewPeriod(time.Hour * 12),
+	}
+
+	sort.Sort(PeriodsByDuration(periods))
+	require.Equal(t, (time.Hour * 6).String(), periods[0].Duration().String())
+	require.Equal(t, (time.Hour * 12).String(), periods[1].Duration().String())
+	require.Equal(t, (time.Hour * 24).String(), periods[2].Duration().String())
 }
-
-// QueryResult is the result of doing a read
-type QueryResult interface {
-	// Resolution is the resolution of the returned series
-	Resolution() retention.Resolution
-
-	// Series contains the returned data
-	Series() Series
-}
-
-// NewQueryResult returns a new QueryResult for the given resolution and series
-func NewQueryResult(r retention.Resolution, s Series) QueryResult {
-	return queryResult{r: r, s: s}
-}
-
-type queryResult struct {
-	r retention.Resolution
-	s Series
-}
-
-func (r queryResult) Resolution() retention.Resolution { return r.r }
-func (r queryResult) Series() Series                   { return r.s }

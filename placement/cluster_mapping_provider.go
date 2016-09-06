@@ -96,7 +96,7 @@ func NewClusterMappingProvider(key string, kvStore kv.Store, opts ClusterMapping
 
 // QueryMappings returns the mappings for a given shard and retention policy
 func (mp *clusterMappingProvider) QueryMappings(
-	shard uint32, start, end time.Time) (storage.ClusterMappingIter, error) {
+	shard uint32, start, end time.Time) (storage.MappingRuleIter, error) {
 	// Figure out how far back this query goes
 	queryAgeInSecs := int32(mp.clock.Now().Sub(end) / time.Second)
 
