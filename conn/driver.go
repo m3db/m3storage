@@ -23,31 +23,24 @@ import (
 
 	"github.com/m3db/m3storage/cluster"
 	"github.com/m3db/m3storage/retention"
+	"github.com/m3db/m3storage/ts"
 	"github.com/m3db/m3x/close"
 
 	"github.com/golang/protobuf/proto"
 )
-
-// A SeriesIter is used to return datapoints from a series
-type SeriesIter interface {
-	xclose.Closer
-
-	// Next returns true if there is more data in the series
-	Next() bool
-
-	// Current returns the value and timestamp for the current datapoint
-	Current() (float64, time.Time)
-}
 
 // A Conn is a connection to a storage cluster, which can be used to
 // read and write datapoints to that cluster
 type Conn interface {
 	xclose.Closer
 
-	// Read reads datapoints for the given id at the given time range and resolution
-	Read(id string, r retention.Resolution, start, end time.Time) (SeriesIter, error)
+	// Read reads datapoints for the given id at the given time range and desired
+	// resolution.  The connection is not obligated to return datapoints at that
+	// resolution
+	Read(id string, r retention.Resolution, start, end time.Time) (ts.SeriesIter, error)
 
-	// Write writes a datapoint for the given id at the given time range
+	// Write writes a datapoint for the given id at the given time range, desired
+	// retention period, and resolution
 	Write(id string, r retention.Resolution, t time.Time, value float64) error
 }
 
