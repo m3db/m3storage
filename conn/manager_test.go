@@ -480,7 +480,7 @@ func initManagerTest(t *testing.T, opts ManagerOptions,
 	d := newFakeDriver()
 
 	updateCh := make(chan cluster.Cluster, 1)
-	p, err := cluster.NewProvider(updateCh, cluster.ProviderOptions{})
+	p, err := cluster.NewProvider(updateCh, cluster.NewProviderOptions())
 	require.NoError(t, err)
 
 	if opts == nil {
