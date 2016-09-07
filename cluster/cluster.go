@@ -110,7 +110,7 @@ type Cluster interface {
 }
 
 // NewCluster returns a new Cluster
-func NewCluster(name string, clusterType Type, config Config, database string) Cluster {
+func NewCluster(name string, clusterType Type, database string, config Config) Cluster {
 	return cluster{
 		name:        name,
 		clusterType: clusterType,

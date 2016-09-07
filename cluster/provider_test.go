@@ -55,7 +55,7 @@ func TestProviderWatchUnknownCluster(t *testing.T) {
 	require.NoError(t, err)
 
 	// Send the initial value
-	ch <- NewCluster("c1", NewType("m3db"), NewConfig(43, []byte("hello")), "foo")
+	ch <- NewCluster("c1", NewType("m3db"), "foo", NewConfig(43, []byte("hello")))
 
 	// Should trigger the watch
 	<-w.C()
@@ -77,7 +77,7 @@ func TestProviderWatch(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ch <- NewCluster("c1", NewType("m3db"), NewConfig(43, []byte("hello")), "foo")
+	ch <- NewCluster("c1", NewType("m3db"), "foo", NewConfig(43, []byte("hello")))
 
 	// Register an initial watch and make sure we get the first value
 	w, err := p.WatchCluster("foo", "c1")
@@ -91,7 +91,7 @@ func TestProviderWatch(t *testing.T) {
 	require.Equal(t, 43, c.Config().Version())
 
 	// Update the config
-	ch <- NewCluster("c1", NewType("m3db"), NewConfig(45, []byte("hello2")), "foo")
+	ch <- NewCluster("c1", NewType("m3db"), "foo", NewConfig(45, []byte("hello2")))
 
 	// Make sure the watch is triggered
 	<-w.C()
@@ -102,7 +102,7 @@ func TestProviderWatch(t *testing.T) {
 	require.Equal(t, 45, c.Config().Version())
 
 	// Update but with an older version, no watch should fire
-	ch <- NewCluster("c1", NewType("m3db"), NewConfig(44, []byte("hello3")), "foo")
+	ch <- NewCluster("c1", NewType("m3db"), "foo", NewConfig(44, []byte("hello3")))
 
 	updated := false
 	select {

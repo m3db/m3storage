@@ -249,8 +249,8 @@ func (p *provider) applyClusterUpdates(dbConfig *schema.Database, fromVersion in
 		p.clusterUpdateCh <- cluster.NewCluster(
 			c.Properties.Name,
 			cluster.NewType(c.Properties.Type),
-			cluster.NewConfig(int(version), c.Config),
-			dbConfig.Properties.Name)
+			dbConfig.Properties.Name,
+			cluster.NewConfig(int(version), c.Config))
 	}
 }
 
