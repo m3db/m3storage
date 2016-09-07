@@ -19,7 +19,6 @@
 package storage
 
 import (
-	"errors"
 	"testing"
 	"time"
 
@@ -131,17 +130,12 @@ func TestQueryPlanner_Plan(t *testing.T) {
 
 type fakeMappingRuleProvider []mapping.Rule
 
-func (scm fakeMappingRuleProvider) QueryMappings(shard uint32, start, end time.Time) (MappingRuleIter, error) {
+func (scm fakeMappingRuleProvider) FetchRules(shard uint32, start, end time.Time) (mapping.RuleIter, error) {
 	return &fakeMappingRuleIter{
 		mappings: scm,
 		current:  0,
 		next:     0,
 	}, nil
-}
-
-func (scm fakeMappingRuleProvider) WatchCluster(database, cluster string) (ClusterWatch, error) {
-	// TODO(mmihic): Support later
-	return nil, errors.New("no such cluster")
 }
 
 func (scm fakeMappingRuleProvider) Close() error { return nil }
