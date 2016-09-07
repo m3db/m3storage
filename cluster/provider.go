@@ -29,6 +29,8 @@ import (
 
 var (
 	errClosed = errors.New("closed")
+
+	errProviderLogRequired = errors.New("log is required")
 )
 
 // A Provider provides information about cluster configurations
@@ -42,22 +44,37 @@ type Provider interface {
 }
 
 // ProviderOptions are options to a provider
-type ProviderOptions struct {
-	Logger xlog.Logger // the log to use
+type ProviderOptions interface {
+	// Logger is the logger to use
+	Logger(log xlog.Logger) ProviderOptions
+	GetLogger() xlog.Logger
+
+	// Validate validates the options
+	Validate() error
+}
+
+// NewProviderOptions creates new default provider options
+func NewProviderOptions() ProviderOptions {
+	return providerOptions{
+		log: xlog.NullLogger,
+	}
 }
 
 // NewProvider instantiates a new provider around an input channel.
 func NewProvider(updateCh <-chan Cluster, opts ProviderOptions) (Provider, error) {
-	log := opts.Logger
-	if log == nil {
-		log = xlog.NullLogger
+	if opts == nil {
+		opts = NewProviderOptions()
+	}
+
+	if err := opts.Validate(); err != nil {
+		return nil, err
 	}
 
 	p := &provider{
 		updateCh: updateCh,
 		close:    make(chan struct{}),
 		done:     make(chan struct{}),
-		log:      log,
+		log:      opts.GetLogger(),
 		c:        make(map[string]*watchedCluster),
 	}
 
@@ -167,7 +184,27 @@ func (p *provider) findOrCreateWatchedCluster(database, cluster string) (*watche
 	return wc, nil
 }
 
+// A watchedCluster tracks a cluster that is being watched
 type watchedCluster struct {
 	v int
 	w xwatch.Watchable
+}
+
+// providerOptions are options to a provider
+type providerOptions struct {
+	log xlog.Logger
+}
+
+func (opts providerOptions) GetLogger() xlog.Logger { return opts.log }
+func (opts providerOptions) Logger(log xlog.Logger) ProviderOptions {
+	opts.log = log
+	return opts
+}
+
+func (opts providerOptions) Validate() error {
+	if opts.log == nil {
+		return errProviderLogRequired
+	}
+
+	return nil
 }

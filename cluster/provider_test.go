@@ -22,16 +22,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/m3db/m3x/log"
-
 	"github.com/stretchr/testify/require"
 )
 
 func TestProviderWatchClosed(t *testing.T) {
 	ch := make(chan Cluster)
-	p, err := NewProvider(ch, ProviderOptions{
-		Logger: xlog.SimpleLogger,
-	})
+	p, err := NewProvider(ch, NewProviderOptions())
 	require.NoError(t, err)
 
 	// Close the provider
@@ -45,9 +41,7 @@ func TestProviderWatchClosed(t *testing.T) {
 
 func TestProviderWatchUnknownCluster(t *testing.T) {
 	ch := make(chan Cluster)
-	p, err := NewProvider(ch, ProviderOptions{
-		Logger: xlog.SimpleLogger,
-	})
+	p, err := NewProvider(ch, NewProviderOptions())
 	require.NoError(t, err)
 
 	// Register an initial watch
@@ -72,9 +66,7 @@ func TestProviderWatchUnknownCluster(t *testing.T) {
 
 func TestProviderWatch(t *testing.T) {
 	ch := make(chan Cluster)
-	p, err := NewProvider(ch, ProviderOptions{
-		Logger: xlog.SimpleLogger,
-	})
+	p, err := NewProvider(ch, NewProviderOptions())
 	require.NoError(t, err)
 
 	ch <- NewCluster("c1", NewType("m3db"), "foo", NewConfig(43, []byte("hello")))
@@ -118,4 +110,11 @@ func TestProviderWatch(t *testing.T) {
 
 	// Close the provider
 	require.NoError(t, p.Close())
+}
+
+func TestProviderInvalidOptions(t *testing.T) {
+	ch := make(chan Cluster)
+	p, err := NewProvider(ch, NewProviderOptions().Logger(nil))
+	require.Equal(t, errProviderLogRequired, err)
+	require.Nil(t, p)
 }
