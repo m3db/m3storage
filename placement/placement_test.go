@@ -46,7 +46,7 @@ var (
 		TransitionDelay(testTransitionDelay)
 )
 
-func TestPlacement_AddDatabaseInvalid(t *testing.T) {
+func TestPlacementAddDatabaseInvalid(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 
 	tests := []struct {
@@ -70,7 +70,7 @@ func TestPlacement_AddDatabaseInvalid(t *testing.T) {
 	}
 }
 
-func TestPlacement_AddDatabase(t *testing.T) {
+func TestPlacementAddDatabase(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -105,7 +105,7 @@ func TestPlacement_AddDatabase(t *testing.T) {
 	}, changes)
 }
 
-func TestPlacement_AddDatabaseRetentionPeriodConflictsWithExisting(t *testing.T) {
+func TestPlacementAddDatabaseRetentionPeriodConflictsWithExisting(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -137,7 +137,7 @@ func TestPlacement_AddDatabaseRetentionPeriodConflictsWithExisting(t *testing.T)
 	}, changes)
 }
 
-func TestPlacement_AddDatabaseNameConflictsWithExisting(t *testing.T) {
+func TestPlacementAddDatabaseNameConflictsWithExisting(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -168,7 +168,7 @@ func TestPlacement_AddDatabaseNameConflictsWithExisting(t *testing.T) {
 	}, changes)
 }
 
-func TestPlacement_AddDatabaseNameConflictsWithNewlyAdded(t *testing.T) {
+func TestPlacementAddDatabaseNameConflictsWithNewlyAdded(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -204,7 +204,7 @@ func TestPlacement_AddDatabaseNameConflictsWithNewlyAdded(t *testing.T) {
 	requireEqualChanges(t, ts.latestChanges(), existingChanges)
 }
 
-func TestPlacement_AddDatabaseRetentionPeriodConflictsWithNewlyAdded(t *testing.T) {
+func TestPlacementAddDatabaseRetentionPeriodConflictsWithNewlyAdded(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -240,7 +240,7 @@ func TestPlacement_AddDatabaseRetentionPeriodConflictsWithNewlyAdded(t *testing.
 	requireEqualChanges(t, ts.latestChanges(), existingChanges)
 }
 
-func TestPlacement_JoinClusterInvalid(t *testing.T) {
+func TestPlacementJoinClusterInvalid(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 
 	require.NoError(t, ts.sp.AddDatabase(schema.DatabaseProperties{
@@ -263,7 +263,7 @@ func TestPlacement_JoinClusterInvalid(t *testing.T) {
 	}
 }
 
-func TestPlacement_JoinClusterOnNewDatabase(t *testing.T) {
+func TestPlacementJoinClusterOnNewDatabase(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -319,7 +319,7 @@ func TestPlacement_JoinClusterOnNewDatabase(t *testing.T) {
 
 }
 
-func TestPlacement_JoinClusterOnExistingDatabase(t *testing.T) {
+func TestPlacementJoinClusterOnExistingDatabase(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -366,7 +366,7 @@ func TestPlacement_JoinClusterOnExistingDatabase(t *testing.T) {
 	}, changes)
 }
 
-func TestPlacement_JoinClusterConflictsWithExisting(t *testing.T) {
+func TestPlacementJoinClusterConflictsWithExisting(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -396,7 +396,7 @@ func TestPlacement_JoinClusterConflictsWithExisting(t *testing.T) {
 	requireEqualChanges(t, ts.latestChanges(), &schema.PlacementChanges{})
 }
 
-func TestPlacement_JoinClusterConflictsWithJoining(t *testing.T) {
+func TestPlacementJoinClusterConflictsWithJoining(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -450,7 +450,7 @@ func TestPlacement_JoinClusterConflictsWithJoining(t *testing.T) {
 	}, ts.latestChanges())
 }
 
-func TestPlacement_JoinClusterNonExistentDatabase(t *testing.T) {
+func TestPlacementJoinClusterNonExistentDatabase(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -463,7 +463,7 @@ func TestPlacement_JoinClusterNonExistentDatabase(t *testing.T) {
 	require.Equal(t, errDatabaseNotFound, err)
 }
 
-func TestPlacement_UpdateClusterConfigOnExisting(t *testing.T) {
+func TestPlacementUpdateClusterConfigOnExisting(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -496,7 +496,7 @@ func TestPlacement_UpdateClusterConfigOnExisting(t *testing.T) {
 	}, ts.latestChanges())
 }
 
-func TestPlacement_UpdateClusterConfigOnJoining(t *testing.T) {
+func TestPlacementUpdateClusterConfigOnJoining(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -542,13 +542,13 @@ func TestPlacement_UpdateClusterConfigOnJoining(t *testing.T) {
 	}, ts.latestChanges())
 }
 
-func TestPlacement_UpdateClusterConfigOnNonExistentDatabase(t *testing.T) {
+func TestPlacementUpdateClusterConfigOnNonExistentDatabase(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 	require.Equal(t, errDatabaseNotFound, ts.sp.UpdateClusterConfig("foo", "c1", newTestConfig("h1")))
 }
 
-func TestPlacement_UpdateClusterConfigOnOnExistentCluster(t *testing.T) {
+func TestPlacementUpdateClusterConfigOnOnExistentCluster(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 
 	require.NoError(t, ts.sp.AddDatabase(schema.DatabaseProperties{
@@ -559,7 +559,7 @@ func TestPlacement_UpdateClusterConfigOnOnExistentCluster(t *testing.T) {
 	require.Equal(t, errClusterNotFound, ts.sp.UpdateClusterConfig("foo", "c1", newTestConfig("h1")))
 }
 
-func TestPlacement_DecommissionExistingCluster(t *testing.T) {
+func TestPlacementDecommissionExistingCluster(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -599,7 +599,7 @@ func TestPlacement_DecommissionExistingCluster(t *testing.T) {
 	}, changes)
 }
 
-func TestPlacement_DecomissionJoiningCluster(t *testing.T) {
+func TestPlacementDecomissionJoiningCluster(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -636,7 +636,7 @@ func TestPlacement_DecomissionJoiningCluster(t *testing.T) {
 
 }
 
-func TestPlacement_DoubleDecommision(t *testing.T) {
+func TestPlacementDoubleDecommision(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -680,7 +680,7 @@ func TestPlacement_DoubleDecommision(t *testing.T) {
 	}, changes)
 }
 
-func TestPlacement_DecomissionNonExistentCluster(t *testing.T) {
+func TestPlacementDecomissionNonExistentCluster(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -703,7 +703,7 @@ func TestPlacement_DecomissionNonExistentCluster(t *testing.T) {
 	requireEqualChanges(t, &schema.PlacementChanges{}, ts.latestChanges())
 }
 
-func TestPlacement_DecomissionClusterNonExistentDatabase(t *testing.T) {
+func TestPlacementDecomissionClusterNonExistentDatabase(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -715,7 +715,7 @@ func TestPlacement_DecomissionClusterNonExistentDatabase(t *testing.T) {
 	requireEqualChanges(t, &schema.PlacementChanges{}, ts.latestChanges())
 }
 
-func TestPlacement_CommitAddDatabase(t *testing.T) {
+func TestPlacementCommitAddDatabase(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -759,7 +759,7 @@ func TestPlacement_CommitAddDatabase(t *testing.T) {
 	require.Nil(t, ts.latestChanges())
 }
 
-func TestPlacement_CommitMultipleOverlappingInitialDatabases(t *testing.T) {
+func TestPlacementCommitMultipleOverlappingInitialDatabases(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -815,7 +815,7 @@ func TestPlacement_CommitMultipleOverlappingInitialDatabases(t *testing.T) {
 	}, ts.latestPlacement())
 }
 
-func TestPlacement_CommitDatabaseOverlapsWithExisting(t *testing.T) {
+func TestPlacementCommitDatabaseOverlapsWithExisting(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -922,7 +922,7 @@ func TestPlacement_CommitDatabaseOverlapsWithExisting(t *testing.T) {
 
 }
 
-func TestPlacement_CommitInitialClusters(t *testing.T) {
+func TestPlacementCommitInitialClusters(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
 
@@ -1017,7 +1017,7 @@ func TestPlacement_CommitInitialClusters(t *testing.T) {
 	require.Nil(t, ts.latestChanges())
 }
 
-func TestPlacement_CommitClusterConfigUpdates(t *testing.T) {
+func TestPlacementCommitClusterConfigUpdates(t *testing.T) {
 	ts := newPlacementTestSuite(t)
 	createTime := xtime.ToUnixMillis(ts.clock.Now())
 
@@ -1119,7 +1119,7 @@ func TestPlacement_CommitClusterConfigUpdates(t *testing.T) {
 	}, ts.latestPlacement())
 }
 
-func TestPlacement_CommitDecommissionCluster(t *testing.T) {
+func TestPlacementCommitDecommissionCluster(t *testing.T) {
 	// Create a database with a set of clusters
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
@@ -1247,7 +1247,7 @@ func TestPlacement_CommitDecommissionCluster(t *testing.T) {
 	requireEqualPlacements(t, expectedPlacement, ts.latestPlacement())
 }
 
-func TestPlacement_CommitJoinClusters(t *testing.T) {
+func TestPlacementCommitJoinClusters(t *testing.T) {
 	// Create an empty database
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
@@ -1420,7 +1420,7 @@ func TestPlacement_CommitJoinClusters(t *testing.T) {
 	requireEqualPlacements(t, expectedPlacement, ts.latestPlacement())
 }
 
-func TestPlacement_CommitComplexTopologyChanges(t *testing.T) {
+func TestPlacementCommitComplexTopologyChanges(t *testing.T) {
 	// Create a database with a set of clusters
 	ts := newPlacementTestSuite(t)
 	ts.clock.Add(time.Second * 34)
