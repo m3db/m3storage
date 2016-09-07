@@ -16,11 +16,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package storage
+package conn
 
 import (
 	"time"
 
+	"github.com/m3db/m3storage/cluster"
 	"github.com/m3db/m3storage/retention"
 	"github.com/m3db/m3x/close"
 
@@ -38,9 +39,9 @@ type SeriesIter interface {
 	Current() (float64, time.Time)
 }
 
-// A Connection is a connection to a storage cluster, which can be used to
+// A Conn is a connection to a storage cluster, which can be used to
 // read and write datapoints to that cluster
-type Connection interface {
+type Conn interface {
 	xclose.Closer
 
 	// Read reads datapoints for the given id at the given time range and resolution
@@ -59,15 +60,15 @@ type Driver interface {
 	ConfigType() proto.Message
 
 	// Type is the type of storage supported by the driver
-	Type() Type
+	Type() cluster.Type
 
-	// OpenConnection opens a connection with the provided config
-	OpenConnection(config proto.Message) (Connection, error)
+	// Open opens a connection with the provided config
+	Open(config proto.Message) (Conn, error)
 
-	// ReconfigureConnection applies a new configuration to an existing connection.
+	// Reconfigure applies a new configuration to an existing connection.
 	// Connections could be heavyweight objects, and drivers may wish to optimize
 	// reconfiguration to avoid creating and destroying them.  Drivers that do
-	// not support dynamic reconfiguration can create a new Connection and dispose
-	// of the old connection
-	ReconfigureConnection(c Connection, newConfig proto.Message) (Connection, error)
+	// not support dynamic reconfiguration can create a new Connection and
+	// dispose of the old connection
+	Reconfigure(existing Conn, newConfig proto.Message) (Conn, error)
 }
