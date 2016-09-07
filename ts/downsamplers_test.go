@@ -16,13 +16,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package downsample
+package ts
 
 import (
 	"math"
 	"testing"
 
-	"github.com/m3db/m3storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -85,14 +84,14 @@ func TestCount(t *testing.T) {
 
 }
 
-func testDownsample(t *testing.T, d storage.Downsampler, a, b, results []float64) {
+func testDownsample(t *testing.T, d Downsampler, a, b, results []float64) {
 	require.Equal(t, len(a), len(b))
 	require.Equal(t, len(a), len(results))
 
-	vals := make(storage.Float64SeriesValues, len(a))
+	vals := make(Float64SeriesValues, len(a))
 	vals.Reset()
 
-	d.Init(vals)
+	d.Reset(vals)
 	for n := range a {
 		d.AddSample(n, a[n])
 		d.AddSample(n, b[n])

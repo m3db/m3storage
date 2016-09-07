@@ -16,12 +16,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package downsample
+package ts
 
 import (
 	"math"
-
-	"github.com/m3db/m3storage"
 )
 
 // NaNSafe returns a variant of the provided function that can account for NaN
@@ -42,18 +40,18 @@ func NaNSafe(f func(a, b float64) float64) func(float64, float64) float64 {
 
 // With returns a downsampler that uses the provided function to
 // combine the new sample with the existing downsampled value
-func With(f func(float64, float64) float64) storage.Downsampler {
+func With(f func(float64, float64) float64) Downsampler {
 	return &simpleDownsampler{f: f}
 }
 
 // Min returns a Downsampler that picks the minimum value as the sample
-func Min() storage.Downsampler { return With(NaNSafe(math.Min)) }
+func Min() Downsampler { return With(NaNSafe(math.Min)) }
 
 // Max returns a Downsampler that picks the maximum value as the sample
-func Max() storage.Downsampler { return With(NaNSafe(math.Max)) }
+func Max() Downsampler { return With(NaNSafe(math.Max)) }
 
 // Count returns a Downsampler that counts the number of samples in the interval
-func Count() storage.Downsampler {
+func Count() Downsampler {
 	return With(func(a, b float64) float64 {
 		if math.IsNaN(b) {
 			return a
@@ -68,31 +66,31 @@ func Count() storage.Downsampler {
 }
 
 // Sum returns a Downsampler that adds the samples togher
-func Sum() storage.Downsampler {
+func Sum() Downsampler {
 	return With(NaNSafe(func(a, b float64) float64 { return a + b }))
 }
 
 // Mean returns a Downsampler that calculates the mean of all samples in the interval
-func Mean() storage.Downsampler { return new(meanDownsampler) }
+func Mean() Downsampler { return new(meanDownsampler) }
 
 type simpleDownsampler struct {
 	f    func(float64, float64) float64
-	vals storage.SeriesValues
+	vals SeriesValues
 }
 
-func (d *simpleDownsampler) Init(vals storage.SeriesValues) { d.vals = vals }
-func (d *simpleDownsampler) Finish()                        {}
+func (d *simpleDownsampler) Reset(vals SeriesValues) { d.vals = vals }
+func (d *simpleDownsampler) Finish()                 {}
 func (d *simpleDownsampler) AddSample(n int, v float64) {
 	cur := d.vals.ValueAt(n)
 	d.vals.SetValueAt(n, d.f(cur, v))
 }
 
 type meanDownsampler struct {
-	vals   storage.SeriesValues
+	vals   SeriesValues
 	counts []int
 }
 
-func (d *meanDownsampler) Init(vals storage.SeriesValues) {
+func (d *meanDownsampler) Reset(vals SeriesValues) {
 	// TODO(mmihic): Pool counts array
 	d.vals = vals
 	d.counts = make([]int, vals.Len())

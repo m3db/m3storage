@@ -16,13 +16,13 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package storage
+package ts
 
 // A Downsampler combines multiple datapoints that appear within the
 // same time interval to produce a single downsampled result
 type Downsampler interface {
-	// Init initializes the downsampler to store results in the given values
-	Init(vals SeriesValues)
+	// Reset rests the downsampler to store results in the given values
+	Reset(vals SeriesValues)
 
 	// AddSample adds a datapoint sample to the given interval
 	AddSample(n int, v float64)
