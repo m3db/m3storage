@@ -170,14 +170,15 @@ func (p *provider) watchPlacementChanges() {
 
 // update updates the current rules based on a given placement
 func (p *provider) update(pl *schema.Placement) error {
-	// Avoid the need for upstream code to synchronize on the database rules
-	// by first making a copy, then updating the copy in place,
-	// then swapping out the pointers atomically
+	// Avoid the need for upstream code to synchronize on the database rules by
+	// first making a copy, then updating the copy in place, then swapping out
+	// the pointers atomically
 	p.RLock()
 	byName := make(map[string]*databaseRules, len(p.byName))
 	byRetention := make([]*databaseRules, len(p.byRetention))
 	for n, db := range p.byRetention {
-		byRetention[n], byName[db.name] = db, db
+		clone := db.clone()
+		byRetention[n], byName[db.name] = clone, clone
 	}
 	p.RUnlock()
 

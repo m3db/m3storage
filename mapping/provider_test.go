@@ -23,37 +23,42 @@ import (
 	"testing"
 	"time"
 
-	"github.com/m3db/m3storage"
+	"github.com/m3db/m3cluster/kv"
 	"github.com/m3db/m3storage/generated/proto/configtest"
 	"github.com/m3db/m3storage/generated/proto/schema"
-	"github.com/m3db/m3storage/mapping"
+	"github.com/m3db/m3storage/placement"
 	"github.com/m3db/m3x/log"
 
+	"github.com/facebookgo/clock"
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	shortRetention  = time.Hour * 12
+	mediumRetention = time.Hour * 24 * 7
+	longRetention   = time.Hour * 24 * 30
+
+	testTransitionDelay = time.Minute * 5
+	testRolloutDelay    = time.Minute * 30
+	readCutoverDelay    = testRolloutDelay * 2
+	writeCutoverDelay   = readCutoverDelay + testRolloutDelay
+	cutoffDelay         = writeCutoverDelay + testTransitionDelay
+)
+
+var (
+	commitOptions = placement.NewCommitOptions().
+		RolloutDelay(testRolloutDelay).
+		TransitionDelay(testTransitionDelay)
+)
+
 func TestProviderFetchRules(t *testing.T) {
-	var (
-		shortRetention  = time.Hour * 12
-		mediumRetention = time.Hour * 24 * 7
-		longRetention   = time.Hour * 24 * 30
+	ts := newProviderTestSuite(t)
+	now := ts.clock.Now()
 
-		readCutoverDelay  = testRolloutDelay * 2
-		writeCutoverDelay = readCutoverDelay + testRolloutDelay
-		cutoffDelay       = writeCutoverDelay + testTransitionDelay
-
-		ts   = newPlacementTestSuite(t)
-		prov = newTestClusterMappingProvider(ts)
-
-		now = ts.clock.Now()
-	)
-
-	defer prov.Close()
-
-	type query struct {
+	type fetch struct {
 		shard     uint32
 		retention time.Duration
-		results   []queryResult
+		results   []expectedRule
 	}
 
 	type changes struct {
@@ -65,15 +70,17 @@ func TestProviderFetchRules(t *testing.T) {
 	type test struct {
 		scenario string
 		changes  changes
-		queries  []query
+		queries  []fetch
 	}
 
-	config := newTestConfig("h1")
+	config := &configtest.TestConfig{
+		Hosts: []string{"h1", "h2"},
+	}
 
 	tests := []test{
 		test{
 			scenario: "no databases",
-			queries: []query{
+			queries: []fetch{
 				{12, shortRetention, nil},
 				{24, longRetention, nil},
 			},
@@ -102,16 +109,16 @@ func TestProviderFetchRules(t *testing.T) {
 			},
 
 			// all queries should hit the medium retention cluster
-			queries: []query{
-				query{0, shortRetention, []queryResult{
-					queryResult{
+			queries: []fetch{
+				fetch{0, shortRetention, []expectedRule{
+					expectedRule{
 						database: "wow",
 						cluster:  "wow1",
 						read:     now.Add(readCutoverDelay),
 						write:    now.Add(writeCutoverDelay)},
 				}},
-				query{0, longRetention, []queryResult{
-					queryResult{
+				fetch{0, longRetention, []expectedRule{
+					expectedRule{
 						database: "wow", cluster: "wow1",
 						read:  now.Add(readCutoverDelay),
 						write: now.Add(writeCutoverDelay)},
@@ -133,23 +140,23 @@ func TestProviderFetchRules(t *testing.T) {
 
 			// queries for the first sets of shards should span clusters, tail shards
 			// should remain where they were
-			queries: []query{
-				query{0, shortRetention, []queryResult{
-					queryResult{
+			queries: []fetch{
+				fetch{0, shortRetention, []expectedRule{
+					expectedRule{
 						database: "wow",
 						cluster:  "wow2",
 						read:     now.Add(readCutoverDelay + time.Hour),
 						write:    now.Add(writeCutoverDelay + time.Hour)},
 
-					queryResult{
+					expectedRule{
 						database: "wow",
 						cluster:  "wow1",
 						read:     now.Add(readCutoverDelay),
 						write:    now.Add(writeCutoverDelay),
 						cutoff:   now.Add(cutoffDelay + time.Hour)},
 				}},
-				query{4095, longRetention, []queryResult{
-					queryResult{
+				fetch{4095, longRetention, []expectedRule{
+					expectedRule{
 						database: "wow",
 						cluster:  "wow1",
 						read:     now.Add(readCutoverDelay),
@@ -170,28 +177,28 @@ func TestProviderFetchRules(t *testing.T) {
 				},
 			},
 
-			queries: []query{
-				query{0, shortRetention, []queryResult{
-					queryResult{
+			queries: []fetch{
+				fetch{0, shortRetention, []expectedRule{
+					expectedRule{
 						database: "wow",
 						cluster:  "wow4",
 						read:     now.Add(readCutoverDelay + time.Hour*2),
 						write:    now.Add(writeCutoverDelay + time.Hour*2)},
-					queryResult{
+					expectedRule{
 						database: "wow",
 						cluster:  "wow2",
 						read:     now.Add(readCutoverDelay + time.Hour),
 						write:    now.Add(writeCutoverDelay + time.Hour),
 						cutoff:   now.Add(cutoffDelay + time.Hour*2)},
-					queryResult{
+					expectedRule{
 						database: "wow",
 						cluster:  "wow1",
 						read:     now.Add(readCutoverDelay),
 						write:    now.Add(writeCutoverDelay),
 						cutoff:   now.Add(cutoffDelay + time.Hour)},
 				}},
-				query{4095, longRetention, []queryResult{
-					queryResult{
+				fetch{4095, longRetention, []expectedRule{
+					expectedRule{
 						database: "wow",
 						cluster:  "wow1",
 						read:     now.Add(readCutoverDelay),
@@ -228,7 +235,8 @@ func TestProviderFetchRules(t *testing.T) {
 
 		if changed {
 			ts.commitLatest()
-			prov.update(ts.latestPlacement())
+			pl := ts.latestPlacement()
+			require.NoError(t, ts.p.update(pl))
 		}
 
 		// advance time
@@ -236,19 +244,24 @@ func TestProviderFetchRules(t *testing.T) {
 
 		// run queries and compare results
 		for n, q := range test.queries {
-			iter, err := prov.QueryMappings(q.shard, ts.clock.Now().Add(-q.retention), ts.clock.Now())
+			iter, err := ts.p.FetchRules(q.shard, ts.clock.Now().Add(-q.retention), ts.clock.Now())
 			require.NoError(t, err)
 
 			results := collectMappings(iter)
 			require.NoError(t, iter.Close())
 
-			require.Equal(t, len(q.results), len(results), "bad results for %s query %d", test.scenario, n)
+			require.Equal(t, len(q.results), len(results), "bad results for %s fetch %d", test.scenario, n)
 			for i := range results {
 				r1, r2 := q.results[i], results[i]
-				requireEqualMappingRules(t, r1, r2, fmt.Sprintf("bad result %d for %s query %d", i, test.scenario, n))
+				requireRules(t, r1, r2, fmt.Sprintf("bad result %d for %s fetch %d", i, test.scenario, n))
 			}
 		}
 	}
+
+	ts.Close()
+}
+
+func TestProviderPropagatesClusterUpdates(t *testing.T) {
 }
 
 func BenchmarkProvider1Cluster(b *testing.B) {
@@ -280,12 +293,7 @@ func BenchmarkProvider256ClusterSplits(b *testing.B) {
 }
 
 func benchmarkNClusterSplits(b *testing.B, numSplits, expectedLoMappings int) {
-	var (
-		ts   = newPlacementTestSuiteWithLogger(b, xlog.NullLogger)
-		prov = newTestClusterMappingProvider(ts)
-	)
-
-	defer prov.Close()
+	ts := newProviderTestSuite(b)
 
 	// Create a database, then join clusters to it repeatedly, splitting each time
 	require.NoError(b, ts.sp.AddDatabase(schema.DatabaseProperties{
@@ -301,17 +309,19 @@ func benchmarkNClusterSplits(b *testing.B, numSplits, expectedLoMappings int) {
 			Name:   fmt.Sprintf("c%d", i),
 			Weight: uint32(testShards),
 			Type:   "m3db",
-		}, newTestConfig("h1")))
+		}, &configtest.TestConfig{
+			Hosts: []string{fmt.Sprintf("h%d", i)},
+		}))
 
 		ts.commitLatest()
 	}
 
 	// update the mappings
-	prov.update(ts.latestPlacement())
+	ts.p.update(ts.latestPlacement())
 
 	// confirm we have the right number of mappings with the right values...
 	start, end := ts.clock.Now().Add(-time.Hour*24), ts.clock.Now()
-	iter, err := prov.QueryMappings(0, start, end)
+	iter, err := ts.p.FetchRules(0, start, end)
 	require.NoError(b, err)
 
 	loMappings := collectMappings(iter)
@@ -322,14 +332,14 @@ func benchmarkNClusterSplits(b *testing.B, numSplits, expectedLoMappings int) {
 	// ...and run the benchmark
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		iter, _ := prov.QueryMappings(0, start, end)
+		iter, _ := ts.p.FetchRules(0, start, end)
 		for iter.Next() {
 		}
 	}
 }
 
-func collectMappings(iter storage.MappingRuleIter) []mapping.Rule {
-	var results []mapping.Rule
+func collectMappings(iter RuleIter) []Rule {
+	var results []Rule
 	for iter.Next() {
 		results = append(results, iter.Current())
 	}
@@ -337,34 +347,23 @@ func collectMappings(iter storage.MappingRuleIter) []mapping.Rule {
 	return results
 }
 
-func newTestClusterMappingProvider(ts *placementTestSuite) *clusterMappingProvider {
-	p, err := NewClusterMappingProvider("p", ts.kv, NewClusterMappingProviderOptions().
-		Clock(ts.clock).
-		Logger(xlog.SimpleLogger))
-
-	require.NoError(ts.t, err)
-	prov := p.(*clusterMappingProvider)
-	return prov
-}
-
-type queryResult struct {
+type expectedRule struct {
 	database, cluster   string
 	read, write, cutoff time.Time
 }
 
-func (m queryResult) ReadCutoverTime() time.Time  { return m.read }
-func (m queryResult) WriteCutoverTime() time.Time { return m.write }
-func (m queryResult) CutoffTime() time.Time       { return m.cutoff }
-func (m queryResult) Cluster() string             { return m.cluster }
-func (m queryResult) Database() string            { return m.database }
+func (m expectedRule) ReadCutoverTime() time.Time  { return m.read }
+func (m expectedRule) WriteCutoverTime() time.Time { return m.write }
+func (m expectedRule) CutoffTime() time.Time       { return m.cutoff }
+func (m expectedRule) Cluster() string             { return m.cluster }
+func (m expectedRule) Database() string            { return m.database }
 
-func requireEqualMappingRules(t *testing.T, expected, actual mapping.Rule, name string) {
+func requireRules(t *testing.T, expected, actual Rule, name string) {
 	require.Equal(t, expected.ReadCutoverTime().String(), actual.ReadCutoverTime().String(),
 		"%s ReadCutoverTime", name)
 	require.Equal(t, expected.WriteCutoverTime().String(), actual.WriteCutoverTime().String(),
 		"%s WriteCutoverTime", name)
-	require.Equal(t, expected.CutoffTime().String(), actual.CutoffTime().String(),
-		"%s CutoffTime", name)
+	require.Equal(t, expected.CutoffTime().String(), actual.CutoffTime().String(), "%s CutoffTime", name)
 	require.Equal(t, expected.Cluster(), actual.Cluster(), "%s Cluster", name)
 	require.Equal(t, expected.Database(), actual.Database(), "%s Database", name)
 }
@@ -372,3 +371,51 @@ func requireEqualMappingRules(t *testing.T, expected, actual mapping.Rule, name 
 const (
 	testShards = 4096
 )
+
+type providerTestSuite struct {
+	t     require.TestingT
+	clock *clock.Mock
+	kv    kv.Store
+	sp    placement.StoragePlacement
+	p     *provider
+}
+
+func newProviderTestSuite(t require.TestingT) *providerTestSuite {
+	clock := clock.NewMock()
+	kv := kv.NewFakeStore()
+
+	sp, err := placement.NewStoragePlacement(kv, "cfg",
+		placement.NewStoragePlacementOptions().Clock(clock))
+	require.NoError(t, err)
+
+	prov, err := NewProvider("cfg", kv, &ProviderOptions{
+		Logger: xlog.SimpleLogger,
+		Clock:  clock,
+	})
+	require.NoError(t, err)
+
+	return &providerTestSuite{
+		t:     t,
+		clock: clock,
+		kv:    kv,
+		sp:    sp,
+		p:     prov.(*provider),
+	}
+}
+
+func (ts *providerTestSuite) Close() {
+	ts.p.Close()
+}
+
+func (ts *providerTestSuite) commitLatest() {
+	v, _, _, err := ts.sp.GetPendingChanges()
+	require.NoError(ts.t, err)
+	require.NoError(ts.t, ts.sp.CommitChanges(v, commitOptions))
+}
+
+func (ts *providerTestSuite) latestPlacement() *schema.Placement {
+	_, pl, _, err := ts.sp.GetPendingChanges()
+	require.NoError(ts.t, err)
+	return pl
+
+}

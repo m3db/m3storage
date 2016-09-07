@@ -46,9 +46,10 @@ type databaseRules struct {
 // newDatabaseRules creates a new set of databaseRules
 func newDatabaseRules(dbConfig *schema.Database, log xlog.Logger) (*databaseRules, error) {
 	dbr := &databaseRules{
-		name:    dbConfig.Properties.Name,
-		version: -1, // apply all rules
-		log:     log,
+		name:               dbConfig.Properties.Name,
+		version:            -1, // apply all rules
+		maxRetentionInSecs: dbConfig.Properties.MaxRetentionInSecs,
+		log:                log,
 	}
 
 	if err := dbr.applyNewTransitions(dbConfig.Version, dbConfig.MappingRules); err != nil {
@@ -62,7 +63,7 @@ func newDatabaseRules(dbConfig *schema.Database, log xlog.Logger) (*databaseRule
 func (dbr *databaseRules) clone() *databaseRules {
 	clone := &databaseRules{
 		name:               dbr.name,
-		version:            -1, // apply all rules
+		version:            dbr.version,
 		maxRetentionInSecs: dbr.maxRetentionInSecs,
 		active:             make([]*activeRule, len(dbr.active)),
 		log:                dbr.log,
@@ -89,12 +90,13 @@ func (dbr *databaseRules) applyNewTransitions(toVersion int32, rules []*schema.C
 			continue
 		}
 
-		dbr.log.Infof("applying transitions for %s v%d", dbr.name, r.ForVersion)
+		dbr.log.Infof("applying transitions for %s v%d from %d", dbr.name, r.ForVersion, dbr.version)
 		if err := dbr.applyTransitions(r.ShardTransitions); err != nil {
 			return err
 		}
 	}
 
+	dbr.version = toVersion
 	return nil
 }
 
@@ -168,7 +170,9 @@ func (dbr *databaseRules) applyTransitions(transitions []*schema.ShardTransition
 		}
 	}
 
+	dbr.log.Infof("before gc, there are %d active rules", len(dbr.active))
 	dbr.gc()
+	dbr.log.Infof("after gc, there are %d active rules", len(dbr.active))
 	return nil
 }
 
