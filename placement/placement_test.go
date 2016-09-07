@@ -1007,6 +1007,10 @@ func TestPlacementCommitInitialClusters(t *testing.T) {
 								WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 							},
 						},
+						ClusterConfigUpdates: []*schema.ClusterConfigUpdateRule{
+							&schema.ClusterConfigUpdateRule{ClusterName: "bar"},
+							&schema.ClusterConfigUpdateRule{ClusterName: "zed"},
+						},
 					},
 				},
 			},
@@ -1103,6 +1107,10 @@ func TestPlacementCommitClusterConfigUpdates(t *testing.T) {
 								ReadCutoverTime:  xtime.ToUnixMillis(initialCommitTime),
 								WriteCutoverTime: xtime.ToUnixMillis(initialCommitTime.Add(testRolloutDelay)),
 							},
+						},
+						ClusterConfigUpdates: []*schema.ClusterConfigUpdateRule{
+							&schema.ClusterConfigUpdateRule{ClusterName: "c1"},
+							&schema.ClusterConfigUpdateRule{ClusterName: "c2"},
 						},
 					},
 					&schema.ClusterMappingRuleSet{
@@ -1207,6 +1215,10 @@ func TestPlacementCommitDecommissionCluster(t *testing.T) {
 						ReadCutoverTime:  xtime.ToUnixMillis(ts.clock.Now()),
 						WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 					},
+				},
+				ClusterConfigUpdates: []*schema.ClusterConfigUpdateRule{
+					&schema.ClusterConfigUpdateRule{ClusterName: "c1"},
+					&schema.ClusterConfigUpdateRule{ClusterName: "c2"},
 				},
 			},
 		},
@@ -1326,6 +1338,9 @@ func TestPlacementCommitJoinClusters(t *testing.T) {
 				WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 			},
 		},
+		ClusterConfigUpdates: []*schema.ClusterConfigUpdateRule{
+			&schema.ClusterConfigUpdateRule{ClusterName: "c1"},
+		},
 	})
 
 	// Join another cluster, shards should be redistributed
@@ -1368,6 +1383,9 @@ func TestPlacementCommitJoinClusters(t *testing.T) {
 				WriteCutoverTime:    xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 				CutoverCompleteTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
 			},
+		},
+		ClusterConfigUpdates: []*schema.ClusterConfigUpdateRule{
+			&schema.ClusterConfigUpdateRule{ClusterName: "c2"},
 		},
 	})
 	requireEqualPlacements(t, expectedPlacement, ts.latestPlacement())
@@ -1414,6 +1432,9 @@ func TestPlacementCommitJoinClusters(t *testing.T) {
 				WriteCutoverTime:    xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 				CutoverCompleteTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
 			},
+		},
+		ClusterConfigUpdates: []*schema.ClusterConfigUpdateRule{
+			&schema.ClusterConfigUpdateRule{ClusterName: "c3"},
 		},
 	})
 
@@ -1509,6 +1530,10 @@ func TestPlacementCommitComplexTopologyChanges(t *testing.T) {
 						WriteCutoverTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 					},
 				},
+				ClusterConfigUpdates: []*schema.ClusterConfigUpdateRule{
+					&schema.ClusterConfigUpdateRule{ClusterName: "c1"},
+					&schema.ClusterConfigUpdateRule{ClusterName: "c2"},
+				},
 			},
 		},
 	}
@@ -1559,6 +1584,9 @@ func TestPlacementCommitComplexTopologyChanges(t *testing.T) {
 				WriteCutoverTime:    xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 				CutoverCompleteTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
 			},
+		},
+		ClusterConfigUpdates: []*schema.ClusterConfigUpdateRule{
+			&schema.ClusterConfigUpdateRule{ClusterName: "c3"},
 		},
 	})
 
@@ -1614,6 +1642,9 @@ func TestPlacementCommitComplexTopologyChanges(t *testing.T) {
 				WriteCutoverTime:    xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay)),
 				CutoverCompleteTime: xtime.ToUnixMillis(ts.clock.Now().Add(testRolloutDelay + testTransitionDelay)),
 			},
+		},
+		ClusterConfigUpdates: []*schema.ClusterConfigUpdateRule{
+			&schema.ClusterConfigUpdateRule{ClusterName: "c4"},
 		},
 	})
 
@@ -1737,7 +1768,7 @@ func requireEqualDatabases(t *testing.T, dbname string, db1, db2 *schema.Databas
 	for i := range db1.MappingRules {
 		r1, r2 := db1.MappingRules[i], db2.MappingRules[i]
 		require.Equal(t, r1.ForVersion, r2.ForVersion, "ForVersion[%s:%d]", dbname, i)
-		require.Equal(t, len(r1.ShardTransitions), len(r2.ShardTransitions), "Cutovers[%s:%d]", dbname, i)
+		require.Equal(t, len(r1.ShardTransitions), len(r2.ShardTransitions), "ShardTransitions[%s:%d]", dbname, i)
 		for n := range r1.ShardTransitions {
 			t1, t2 := r1.ShardTransitions[n], r2.ShardTransitions[n]
 			require.Equal(t, t1.ToCluster, t2.ToCluster,
@@ -1751,6 +1782,13 @@ func requireEqualDatabases(t *testing.T, dbname string, db1, db2 *schema.Databas
 			require.Equal(t, t1.CutoverCompleteTime, t2.CutoverCompleteTime,
 				"ShardTransitions[%s:%d:%d].CutoverCompleteTime", dbname, i, n)
 			require.Equal(t, t1.Shards.Bits, t2.Shards.Bits, "ShardTransitions[%s:%d:%d].Bits", dbname, i, n)
+		}
+
+		require.Equal(t, len(r1.ClusterConfigUpdates), len(r2.ClusterConfigUpdates), "ConfigUpdates[%s:%d]", dbname, i)
+		for n := range r1.ClusterConfigUpdates {
+			u1, u2 := r1.ClusterConfigUpdates[n], r2.ClusterConfigUpdates[n]
+			require.Equal(t, u1.ClusterName, u2.ClusterName,
+				"ConfigUpdates[%s:%d:%d]", dbname, i, n)
 		}
 	}
 }
