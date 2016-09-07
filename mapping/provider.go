@@ -19,6 +19,7 @@
 package mapping
 
 import (
+	"errors"
 	"sort"
 	"sync"
 	"time"
@@ -30,6 +31,11 @@ import (
 	"github.com/m3db/m3x/log"
 
 	"github.com/facebookgo/clock"
+)
+
+var (
+	errProviderClockRequired = errors.New("clock required")
+	errProviderLogRequired   = errors.New("log required")
 )
 
 // A RuleIter is an iterator over Rules.  Allows providers to control how these
@@ -55,26 +61,39 @@ type Provider interface {
 }
 
 // ProviderOptions are options to the provider
-type ProviderOptions struct {
-	Logger          xlog.Logger
-	Clock           clock.Clock
-	ClusterUpdateCh chan<- cluster.Cluster
+type ProviderOptions interface {
+	// Logger is the log to use
+	Logger(log xlog.Logger) ProviderOptions
+	GetLogger() xlog.Logger
+
+	// Clock is the clock to use
+	Clock(clock clock.Clock) ProviderOptions
+	GetClock() clock.Clock
+
+	// ClusterUpdateCh is the channel on which to receive Cluster updates
+	ClusterUpdateCh(ch chan<- cluster.Cluster) ProviderOptions
+	GetClusterUpdateCh() chan<- cluster.Cluster
+
+	// Validate checks that the options are valid
+	Validate() error
+}
+
+// NewProviderOptions creates a new default set of provider options
+func NewProviderOptions() ProviderOptions {
+	return providerOptions{
+		log:   xlog.NullLogger,
+		clock: clock.New(),
+	}
 }
 
 // NewProvider creates a new mapping provider
-func NewProvider(key string, kvStore kv.Store, opts *ProviderOptions) (Provider, error) {
+func NewProvider(key string, kvStore kv.Store, opts ProviderOptions) (Provider, error) {
 	if opts == nil {
-		opts = &ProviderOptions{}
+		opts = NewProviderOptions()
 	}
 
-	log := opts.Logger
-	if log == nil {
-		log = xlog.NullLogger
-	}
-
-	c := opts.Clock
-	if c == nil {
-		c = clock.New()
+	if err := opts.Validate(); err != nil {
+		return nil, err
 	}
 
 	w, err := kvStore.Watch(key)
@@ -85,10 +104,10 @@ func NewProvider(key string, kvStore kv.Store, opts *ProviderOptions) (Provider,
 	p := &provider{
 		byName:          make(map[string]*databaseRules),
 		w:               w,
-		log:             log,
-		clock:           c,
+		log:             opts.GetLogger(),
+		clock:           opts.GetClock(),
 		done:            make(chan struct{}),
-		clusterUpdateCh: opts.ClusterUpdateCh,
+		clusterUpdateCh: opts.GetClusterUpdateCh(),
 	}
 
 	go p.watchPlacementChanges()
@@ -252,6 +271,44 @@ func (p *provider) applyClusterUpdates(dbConfig *schema.Database, fromVersion in
 			dbConfig.Properties.Name,
 			cluster.NewConfig(int(version), c.Config))
 	}
+}
+
+// providerOptions tracks provider options
+type providerOptions struct {
+	clock           clock.Clock
+	log             xlog.Logger
+	clusterUpdateCh chan<- cluster.Cluster
+}
+
+func (opts providerOptions) GetClock() clock.Clock                      { return opts.clock }
+func (opts providerOptions) GetLogger() xlog.Logger                     { return opts.log }
+func (opts providerOptions) GetClusterUpdateCh() chan<- cluster.Cluster { return opts.clusterUpdateCh }
+
+func (opts providerOptions) Clock(clock clock.Clock) ProviderOptions {
+	opts.clock = clock
+	return opts
+}
+
+func (opts providerOptions) Logger(log xlog.Logger) ProviderOptions {
+	opts.log = log
+	return opts
+}
+
+func (opts providerOptions) ClusterUpdateCh(ch chan<- cluster.Cluster) ProviderOptions {
+	opts.clusterUpdateCh = ch
+	return opts
+}
+
+func (opts providerOptions) Validate() error {
+	if opts.log == nil {
+		return errProviderLogRequired
+	}
+
+	if opts.clock == nil {
+		return errProviderClockRequired
+	}
+
+	return nil
 }
 
 // sort.Interface for sorting database rules by retention period

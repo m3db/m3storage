@@ -388,10 +388,9 @@ func newProviderTestSuite(t require.TestingT) *providerTestSuite {
 		placement.NewStoragePlacementOptions().Clock(clock))
 	require.NoError(t, err)
 
-	prov, err := NewProvider("cfg", kv, &ProviderOptions{
-		Logger: xlog.SimpleLogger,
-		Clock:  clock,
-	})
+	prov, err := NewProvider("cfg", kv, NewProviderOptions().
+		Logger(xlog.SimpleLogger).
+		Clock(clock))
 	require.NoError(t, err)
 
 	return &providerTestSuite{
