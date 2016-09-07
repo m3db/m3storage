@@ -278,8 +278,8 @@ func (cm *connectionManager) registerConn(cl Cluster, cw ClusterWatch, conn Conn
 	cm.conns[key], cm.watches[key] = conn, cw
 
 	// Spin up a goroutine to monitor the cluster for updates
-	go cm.watchCluster(cl, cw, conn)
 	cm.wg.Add(1)
+	go cm.watchCluster(cl, cw, conn)
 
 	return nil
 }
