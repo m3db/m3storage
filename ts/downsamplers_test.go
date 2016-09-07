@@ -93,8 +93,8 @@ func testDownsample(t *testing.T, d Downsampler, a, b, results []float64) {
 
 	d.Reset(vals)
 	for n := range a {
-		d.AddSample(n, a[n])
-		d.AddSample(n, b[n])
+		d.AddDatapoint(n, a[n])
+		d.AddDatapoint(n, b[n])
 	}
 
 	d.Finish()

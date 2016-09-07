@@ -80,7 +80,7 @@ type simpleDownsampler struct {
 
 func (d *simpleDownsampler) Reset(vals SeriesValues) { d.vals = vals }
 func (d *simpleDownsampler) Finish()                 {}
-func (d *simpleDownsampler) AddSample(n int, v float64) {
+func (d *simpleDownsampler) AddDatapoint(n int, v float64) {
 	cur := d.vals.ValueAt(n)
 	d.vals.SetValueAt(n, d.f(cur, v))
 }
@@ -96,7 +96,7 @@ func (d *meanDownsampler) Reset(vals SeriesValues) {
 	d.counts = make([]int, vals.Len())
 }
 
-func (d *meanDownsampler) AddSample(n int, v float64) {
+func (d *meanDownsampler) AddDatapoint(n int, v float64) {
 	if math.IsNaN(v) {
 		return
 	}

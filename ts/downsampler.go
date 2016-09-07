@@ -24,8 +24,8 @@ type Downsampler interface {
 	// Reset rests the downsampler to store results in the given values
 	Reset(vals SeriesValues)
 
-	// AddSample adds a datapoint sample to the given interval
-	AddSample(n int, v float64)
+	// AddDatapoint adds a datapoint sample to the given interval
+	AddDatapoint(n int, v float64)
 
 	// Finish tells the downsampler we're complete and the final values
 	// computed (if they are not already)
