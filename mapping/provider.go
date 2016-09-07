@@ -241,13 +241,14 @@ func (p *provider) update(pl *schema.Placement) error {
 func (p *provider) applyClusterUpdates(dbConfig *schema.Database, fromVersion int32) {
 	if p.clusterUpdateCh == nil {
 		// No-one is interested in updates
+		p.log.Debugf("skipping cluster updates, no interested listeners")
 		return
 	}
 
 	// Calculate the latest version of all of the cluster configurations
 	newClusterVersions := make(map[string]int32)
 	for _, r := range dbConfig.MappingRules {
-		if r.ForVersion < fromVersion {
+		if r.ForVersion <= fromVersion {
 			continue
 		}
 
@@ -262,8 +263,10 @@ func (p *provider) applyClusterUpdates(dbConfig *schema.Database, fromVersion in
 
 	// Send new cluster configuration to subscribers
 	for cname, version := range newClusterVersions {
-		// NB(mmihic): This intentionally blocks - we don't want to miss cluster updates, and
-		// will hold off processing more rules until the latest updates are delivered
+		// NB(mmihic): This intentionally blocks - we don't want to miss cluster
+		// updates, and will hold off processing more rules until the latest
+		// updates are delivered
+		p.log.Infof("distributing cluster update for %s:%s v%d", dbConfig.Properties.Name, cname, version)
 		c := dbConfig.Clusters[cname]
 		p.clusterUpdateCh <- cluster.NewCluster(
 			c.Properties.Name,

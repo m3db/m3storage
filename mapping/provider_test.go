@@ -24,12 +24,14 @@ import (
 	"time"
 
 	"github.com/m3db/m3cluster/kv"
+	"github.com/m3db/m3storage/cluster"
 	"github.com/m3db/m3storage/generated/proto/configtest"
 	"github.com/m3db/m3storage/generated/proto/schema"
 	"github.com/m3db/m3storage/placement"
 	"github.com/m3db/m3x/log"
 
 	"github.com/facebookgo/clock"
+	"github.com/golang/protobuf/proto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -234,8 +236,8 @@ func TestProviderFetchRules(t *testing.T) {
 		}
 
 		if changed {
-			ts.commitLatest()
-			pl := ts.latestPlacement()
+			commitLatest(t, ts.sp)
+			pl := latestPlacement(t, ts.sp)
 			require.NoError(t, ts.p.update(pl))
 		}
 
@@ -262,6 +264,79 @@ func TestProviderFetchRules(t *testing.T) {
 }
 
 func TestProviderPropagatesClusterUpdates(t *testing.T) {
+	var (
+		clock    = clock.NewMock()
+		kv       = kv.NewFakeStore()
+		m3dbType = cluster.NewType("m3db")
+	)
+
+	sp, err := placement.NewStoragePlacement(kv, "cfg",
+		placement.NewStoragePlacementOptions().Clock(clock))
+	require.NoError(t, err)
+
+	clusterUpdateCh := make(chan cluster.Cluster, 1)
+
+	p, err := NewProvider("cfg", kv, NewProviderOptions().
+		Logger(xlog.SimpleLogger).
+		ClusterUpdateCh(clusterUpdateCh).
+		Clock(clock))
+	require.NoError(t, err)
+
+	// Create a new database and some clusters...
+	require.NoError(t, sp.AddDatabase(schema.DatabaseProperties{
+		Name:               "foo",
+		NumShards:          1024,
+		MaxRetentionInSecs: int32(time.Hour * 24 / time.Second),
+	}))
+	require.NoError(t, sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "c1",
+		Weight: 1024,
+		Type:   "m3db",
+	}, newTestConfig("h1", "h2")))
+
+	require.NoError(t, sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "c2",
+		Weight: 1024,
+		Type:   "m3db",
+	}, newTestConfig("h3", "h4")))
+	commitLatest(t, sp)
+
+	// ...make sure we see those clusters on the channel
+	requireClusterUpdates(t, clusterUpdateCh, map[string]cluster.Cluster{
+		"c1": cluster.NewCluster("c1", m3dbType, "foo", cluster.NewConfig(1, newTestConfigBytes("h1", "h2"))),
+		"c2": cluster.NewCluster("c2", m3dbType, "foo", cluster.NewConfig(1, newTestConfigBytes("h3", "h4"))),
+	})
+
+	// Join new clusters...
+	require.NoError(t, sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "c3",
+		Weight: 1024,
+		Type:   "m3db",
+	}, newTestConfig("h5", "h6")))
+	require.NoError(t, sp.JoinCluster("foo", schema.ClusterProperties{
+		Name:   "c4",
+		Weight: 1024,
+		Type:   "m3db",
+	}, newTestConfig("h7", "h8")))
+	commitLatest(t, sp)
+
+	// ...make sure we see those clusters on the channel
+	requireClusterUpdates(t, clusterUpdateCh, map[string]cluster.Cluster{
+		"c3": cluster.NewCluster("c3", m3dbType, "foo", cluster.NewConfig(2, newTestConfigBytes("h5", "h6"))),
+		"c4": cluster.NewCluster("c4", m3dbType, "foo", cluster.NewConfig(2, newTestConfigBytes("h7", "h8"))),
+	})
+
+	// Update a cluster configuration
+	require.NoError(t, sp.UpdateClusterConfig("foo", "c2", newTestConfig("h9")))
+	commitLatest(t, sp)
+
+	// ...make sure we see that update on the channel
+	require.NoError(t, err)
+	requireClusterUpdates(t, clusterUpdateCh, map[string]cluster.Cluster{
+		"c2": cluster.NewCluster("c2", m3dbType, "foo", cluster.NewConfig(3, newTestConfigBytes("h9"))),
+	})
+
+	p.Close()
 }
 
 func BenchmarkProvider1Cluster(b *testing.B) {
@@ -301,7 +376,7 @@ func benchmarkNClusterSplits(b *testing.B, numSplits, expectedLoMappings int) {
 		NumShards:          testShards,
 		MaxRetentionInSecs: int32(time.Hour * 24 * 30 / time.Second),
 	}))
-	ts.commitLatest()
+	commitLatest(b, ts.sp)
 
 	for i := 0; i < numSplits; i++ {
 		ts.clock.Add(time.Hour)
@@ -309,15 +384,13 @@ func benchmarkNClusterSplits(b *testing.B, numSplits, expectedLoMappings int) {
 			Name:   fmt.Sprintf("c%d", i),
 			Weight: uint32(testShards),
 			Type:   "m3db",
-		}, &configtest.TestConfig{
-			Hosts: []string{fmt.Sprintf("h%d", i)},
-		}))
+		}, newTestConfig(fmt.Sprintf("h%d", i))))
 
-		ts.commitLatest()
+		commitLatest(b, ts.sp)
 	}
 
 	// update the mappings
-	ts.p.update(ts.latestPlacement())
+	ts.p.update(latestPlacement(b, ts.sp))
 
 	// confirm we have the right number of mappings with the right values...
 	start, end := ts.clock.Now().Add(-time.Hour*24), ts.clock.Now()
@@ -336,6 +409,16 @@ func benchmarkNClusterSplits(b *testing.B, numSplits, expectedLoMappings int) {
 		for iter.Next() {
 		}
 	}
+}
+
+func collectClusters(ch chan cluster.Cluster, numExpected int) map[string]cluster.Cluster {
+	clusters := make(map[string]cluster.Cluster)
+	for i := 0; i < numExpected; i++ {
+		c := <-ch
+		clusters[c.Name()] = c
+	}
+
+	return clusters
 }
 
 func collectMappings(iter RuleIter) []Rule {
@@ -366,6 +449,29 @@ func requireRules(t *testing.T, expected, actual Rule, name string) {
 	require.Equal(t, expected.CutoffTime().String(), actual.CutoffTime().String(), "%s CutoffTime", name)
 	require.Equal(t, expected.Cluster(), actual.Cluster(), "%s Cluster", name)
 	require.Equal(t, expected.Database(), actual.Database(), "%s Database", name)
+}
+
+func requireClusterUpdates(t *testing.T, ch chan cluster.Cluster, expected map[string]cluster.Cluster) {
+	actual := collectClusters(ch, len(expected))
+	for cname, c1 := range expected {
+		requireClusters(t, c1, actual[cname])
+	}
+}
+
+func requireClusters(t *testing.T, expected, actual cluster.Cluster) {
+	require.NotNil(t, actual, expected.Name())
+
+	require.Equal(t, expected.Name(), actual.Name(), expected.Name())
+	require.Equal(t, expected.Database(), actual.Database(), expected.Name())
+	require.Equal(t, expected.Type().Name(), actual.Type().Name(), expected.Name())
+	require.Equal(t, expected.Config().Version(), actual.Config().Version(), expected.Name())
+
+	var expectedConfig configtest.TestConfig
+	require.NoError(t, expected.Config().Unmarshal(&expectedConfig), expected.Name())
+
+	var actualConfig configtest.TestConfig
+	require.NoError(t, actual.Config().Unmarshal(&actualConfig), expected.Name())
+	require.Equal(t, expectedConfig.Hosts, actualConfig.Hosts, expected.Name())
 }
 
 const (
@@ -406,15 +512,29 @@ func (ts *providerTestSuite) Close() {
 	ts.p.Close()
 }
 
-func (ts *providerTestSuite) commitLatest() {
-	v, _, _, err := ts.sp.GetPendingChanges()
-	require.NoError(ts.t, err)
-	require.NoError(ts.t, ts.sp.CommitChanges(v, commitOptions))
+func commitLatest(t require.TestingT, sp placement.StoragePlacement) {
+	v, _, _, err := sp.GetPendingChanges()
+	require.NoError(t, err)
+	require.NoError(t, sp.CommitChanges(v, commitOptions))
 }
 
-func (ts *providerTestSuite) latestPlacement() *schema.Placement {
-	_, pl, _, err := ts.sp.GetPendingChanges()
-	require.NoError(ts.t, err)
+func latestPlacement(t require.TestingT, sp placement.StoragePlacement) *schema.Placement {
+	_, pl, _, err := sp.GetPendingChanges()
+	require.NoError(t, err)
 	return pl
+}
 
+func newTestConfig(hosts ...string) *configtest.TestConfig {
+	return &configtest.TestConfig{
+		Hosts: append([]string{}, hosts...),
+	}
+}
+
+func newTestConfigBytes(hosts ...string) []byte {
+	bytes, err := proto.Marshal(newTestConfig(hosts...))
+	if err != nil {
+		panic(err)
+	}
+
+	return bytes
 }
