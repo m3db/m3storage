@@ -27,8 +27,8 @@ import (
 	"github.com/golang/protobuf/proto"
 )
 
-// A SeriesIterator is used to return datapoints from a series
-type SeriesIterator interface {
+// A SeriesIter is used to return datapoints from a series
+type SeriesIter interface {
 	xclose.Closer
 
 	// Next returns true if there is more data in the series
@@ -44,7 +44,7 @@ type Connection interface {
 	xclose.Closer
 
 	// Read reads datapoints for the given id at the given time range and resolution
-	Read(id string, r retention.Resolution, start, end time.Time) (SeriesIterator, error)
+	Read(id string, r retention.Resolution, start, end time.Time) (SeriesIter, error)
 
 	// Write writes a datapoint for the given id at the given time range
 	Write(id string, r retention.Resolution, t time.Time, value float64) error
@@ -52,6 +52,15 @@ type Connection interface {
 
 // A Driver is used to create connections to a cluster of a given storage class
 type Driver interface {
+	xclose.Closer
+
+	// ConfigType returns an empty proto.Message representing the configuration
+	// type used by the driver
+	ConfigType() proto.Message
+
+	// Type is the type of storage supported by the driver
+	Type() Type
+
 	// OpenConnection opens a connection with the provided config
 	OpenConnection(config proto.Message) (Connection, error)
 

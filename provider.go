@@ -23,6 +23,7 @@ import (
 
 	"github.com/m3db/m3storage/mapping"
 	"github.com/m3db/m3x/close"
+	"github.com/m3db/m3x/watch"
 )
 
 // A ClusterWatch watches for config changes on a cluster
@@ -60,4 +61,26 @@ type ClusterMappingProvider interface {
 	// be used to listen for updates to that cluster.  Callers must wait
 	// on the watch channel before attempting to access the Cluster
 	WatchCluster(database, cluster string) (ClusterWatch, error)
+}
+
+// NewClusterWatch wraps a ClusterWatch around an existing Watch
+func NewClusterWatch(w xwatch.Watch) ClusterWatch { return &clusterWatch{Watch: w} }
+
+type clusterWatch struct {
+	xwatch.Watch
+}
+
+func (w *clusterWatch) C() <-chan struct{} { return w.Watch.C() }
+
+func (w *clusterWatch) Get() Cluster {
+	if c := w.Watch.Get(); c != nil {
+		return c.(Cluster)
+	}
+
+	return nil
+}
+
+func (w *clusterWatch) Close() error {
+	w.Watch.Close()
+	return nil
 }

@@ -65,7 +65,7 @@ func (cc *clusters) watch(cname string) (storage.ClusterWatch, error) {
 		return nil, err
 	}
 
-	return clusterWatch{w}, nil
+	return storage.NewClusterWatch(w), nil
 }
 
 // update updates the given cluster and notifies watches
@@ -127,18 +127,6 @@ type clusterConfig struct {
 func (cfg clusterConfig) Version() int { return cfg.version }
 func (cfg clusterConfig) Unmarshal(c proto.Message) error {
 	return proto.Unmarshal(cfg.bytes, c)
-}
-
-// clusterWatch is a type-safe wrapper around xwatch.Watch
-type clusterWatch struct {
-	xwatch.Watch
-}
-
-func (cw clusterWatch) C() <-chan struct{}   { return cw.Watch.C() }
-func (cw clusterWatch) Get() storage.Cluster { return cw.Watch.Get().(storage.Cluster) }
-func (cw clusterWatch) Close() error {
-	cw.Watch.Close()
-	return nil
 }
 
 // storageType is a storage.Type based on placement data
