@@ -22,7 +22,6 @@ It has these top-level messages:
 	ClusterDecommission
 	ShardTransitionRule
 	ClusterConfigUpdateRule
-	ClusterJoinRule
 	ClusterMappingRuleSet
 */
 package schema
@@ -298,22 +297,12 @@ func (m *ClusterConfigUpdateRule) Reset()         { *m = ClusterConfigUpdateRule
 func (m *ClusterConfigUpdateRule) String() string { return proto.CompactTextString(m) }
 func (*ClusterConfigUpdateRule) ProtoMessage()    {}
 
-// ClusterJoinRule indicates that a new cluster has joined
-type ClusterJoinRule struct {
-	ClusterName string `protobuf:"bytes,1,opt,name=cluster_name" json:"cluster_name,omitempty"`
-}
-
-func (m *ClusterJoinRule) Reset()         { *m = ClusterJoinRule{} }
-func (m *ClusterJoinRule) String() string { return proto.CompactTextString(m) }
-func (*ClusterJoinRule) ProtoMessage()    {}
-
 // ClusterMappingRuleSet is a set of cluster mapping rules built off a
 // particular version
 type ClusterMappingRuleSet struct {
 	ForVersion           int32                      `protobuf:"varint,1,opt,name=for_version" json:"for_version,omitempty"`
 	ShardTransitions     []*ShardTransitionRule     `protobuf:"bytes,2,rep,name=shard_transitions" json:"shard_transitions,omitempty"`
 	ClusterConfigUpdates []*ClusterConfigUpdateRule `protobuf:"bytes,3,rep,name=cluster_config_updates" json:"cluster_config_updates,omitempty"`
-	ClusterJoins         []*ClusterJoinRule         `protobuf:"bytes,4,rep,name=cluster_joins" json:"cluster_joins,omitempty"`
 }
 
 func (m *ClusterMappingRuleSet) Reset()         { *m = ClusterMappingRuleSet{} }
@@ -330,13 +319,6 @@ func (m *ClusterMappingRuleSet) GetShardTransitions() []*ShardTransitionRule {
 func (m *ClusterMappingRuleSet) GetClusterConfigUpdates() []*ClusterConfigUpdateRule {
 	if m != nil {
 		return m.ClusterConfigUpdates
-	}
-	return nil
-}
-
-func (m *ClusterMappingRuleSet) GetClusterJoins() []*ClusterJoinRule {
-	if m != nil {
-		return m.ClusterJoins
 	}
 	return nil
 }

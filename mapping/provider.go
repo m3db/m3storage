@@ -255,10 +255,6 @@ func (p *provider) applyClusterUpdates(dbConfig *schema.Database, fromVersion in
 		for _, updated := range r.ClusterConfigUpdates {
 			newClusterVersions[updated.ClusterName] = r.ForVersion
 		}
-
-		for _, joined := range r.ClusterJoins {
-			newClusterVersions[joined.ClusterName] = r.ForVersion
-		}
 	}
 
 	// Send new cluster configuration to subscribers
