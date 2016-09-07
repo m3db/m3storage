@@ -28,16 +28,13 @@ import (
 	"github.com/m3db/m3storage/cluster"
 	"github.com/m3db/m3storage/generated/proto/configtest"
 	"github.com/m3db/m3storage/retention"
-	"github.com/m3db/m3x/log"
-	"github.com/m3db/m3x/watch"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNewManagerErrors(t *testing.T) {
-	d := newFakeDriver()
-	p := newFakeProvider()
+	d, p, _, _ := initManagerTest(t, nil)
 
 	tests := []struct {
 		opts ManagerOptions
@@ -59,18 +56,12 @@ func TestNewManagerErrors(t *testing.T) {
 }
 
 func TestManagerGetConn(t *testing.T) {
-	d := newFakeDriver()
-	p := newFakeProvider()
-	m, err := NewManager(NewManagerOptions().
-		Provider(p).
-		Drivers([]Driver{d}))
+	d, _, m, updateCh := initManagerTest(t, nil)
 
-	require.NoError(t, err)
-
-	p.updateCluster(cluster.NewCluster("c1", fakeStorageType, "wow",
+	updateCh <- cluster.NewCluster("c1", fakeStorageType, "wow",
 		cluster.NewConfig(1, mustMarshal(&configtest.TestConfig{
 			Hosts: []string{"h1", "h2", "h3"},
-		}))))
+		})))
 
 	d.unblockOpen()
 
@@ -83,19 +74,12 @@ func TestManagerGetConn(t *testing.T) {
 }
 
 func TestManagerConcurrentGetNewConn(t *testing.T) {
-	d := newFakeDriver()
-	p := newFakeProvider()
-	m, err := NewManager(NewManagerOptions().
-		Provider(p).
-		Drivers([]Driver{d}).
-		Logger(xlog.SimpleLogger))
+	d, _, m, updateCh := initManagerTest(t, nil)
 
-	require.NoError(t, err)
-
-	p.updateCluster(cluster.NewCluster("c1", fakeStorageType, "wow",
+	updateCh <- cluster.NewCluster("c1", fakeStorageType, "wow",
 		cluster.NewConfig(1, mustMarshal(&configtest.TestConfig{
 			Hosts: []string{"h1", "h2", "h3"},
-		}))))
+		})))
 
 	connCh := make(chan Conn, 5)
 	errorCh := make(chan error, 5)
@@ -148,38 +132,75 @@ func TestManagerConcurrentGetNewConn(t *testing.T) {
 	require.Equal(t, uint32(1), d.opens)
 }
 
-func TestManagerGetConnWatchFails(t *testing.T) {
-	d := newFakeDriver()
-	p := newFakeProvider()
-	m, err := NewManager(NewManagerOptions().
-		Provider(p).
-		Drivers([]Driver{d}).
-		Logger(xlog.SimpleLogger))
-
-	require.NoError(t, err)
-
+func TestManagerGetConnWatchTimeout(t *testing.T) {
+	d, _, m, _ := initManagerTest(t, NewManagerOptions().WatchTimeout(time.Millisecond*100))
 	d.unblockOpen()
 
 	conn, err := m.GetConn("wow", "c1")
-	require.Error(t, err)
+	require.Equal(t, errTimeout, err)
 	require.Nil(t, conn)
+}
+
+func TestManagerGetConnConcurrentRetrieveDifferentConnts(t *testing.T) {
+	d, _, m, updateCh := initManagerTest(t, NewManagerOptions().WatchTimeout(time.Hour))
+	d.unblockOpen()
+
+	// In the background, request access to a cluster which doesn't yet have
+	// config.  This will block
+	connCh, errorCh := make(chan Conn, 5), make(chan error, 5)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		conn, err := m.GetConn("wow", "c1")
+		if err != nil {
+			errorCh <- err
+			return
+		}
+
+		connCh <- conn
+	}()
+
+	// Request access to a different connection on the same database.  This
+	// should succeed even though there is a goroutine blocked on retrieving
+	// another cluster
+	updateCh <- cluster.NewCluster("c2", fakeStorageType, "wow",
+		cluster.NewConfig(1, mustMarshal(&configtest.TestConfig{
+			Hosts: []string{"h4"}})))
+
+	conn1, err := m.GetConn("wow", "c2")
+	require.NoError(t, err)
+	require.NotNil(t, conn1)
+
+	fconn1 := conn1.(*fakeConn)
+	require.Equal(t, []string{"h4"}, fconn1.TestConfig.Hosts)
+
+	// Make the first cluster available. This will unblock the retrieval of
+	// the first connection
+	updateCh <- cluster.NewCluster("c1", fakeStorageType, "wow",
+		cluster.NewConfig(1, mustMarshal(&configtest.TestConfig{
+			Hosts: []string{"h1", "h2", "h3"}})))
+
+	wg.Wait()
+	close(connCh)
+	close(errorCh)
+
+	require.NoError(t, <-errorCh)
+	conn2 := <-connCh
+	require.NotNil(t, conn2)
+	fconn2 := conn2.(*fakeConn)
+	require.Equal(t, []string{"h1", "h2", "h3"}, fconn2.TestConfig.Hosts)
 }
 
 func TestManagerGetConnDriverFails(t *testing.T) {
 	errDriver := errors.New("driver failure")
+	d, _, m, updateCh := initManagerTest(t, nil)
 
-	d := newFakeDriver()
-	p := newFakeProvider()
-	m, err := NewManager(NewManagerOptions().
-		Provider(p).
-		Drivers([]Driver{d}))
-
-	require.NoError(t, err)
-
-	p.updateCluster(cluster.NewCluster("c1", fakeStorageType, "wow",
+	updateCh <- cluster.NewCluster("c1", fakeStorageType, "wow",
 		cluster.NewConfig(1, mustMarshal(&configtest.TestConfig{
 			Hosts: []string{"h1", "h2", "h3"},
-		}))))
+		})))
 
 	d.failOpen(errDriver)
 	d.unblockOpen()
@@ -190,18 +211,12 @@ func TestManagerGetConnDriverFails(t *testing.T) {
 }
 
 func TestManagerGetConnClosedManager(t *testing.T) {
-	d := newFakeDriver()
-	p := newFakeProvider()
-	m, err := NewManager(NewManagerOptions().
-		Provider(p).
-		Drivers([]Driver{d}))
+	_, _, m, updateCh := initManagerTest(t, nil)
 
-	require.NoError(t, err)
-
-	p.updateCluster(cluster.NewCluster("c1", fakeStorageType, "wow",
+	updateCh <- cluster.NewCluster("c1", fakeStorageType, "wow",
 		cluster.NewConfig(1, mustMarshal(&configtest.TestConfig{
 			Hosts: []string{"h1", "h2", "h3"},
-		}))))
+		})))
 
 	m.Close()
 
@@ -211,18 +226,12 @@ func TestManagerGetConnClosedManager(t *testing.T) {
 }
 
 func TestManagerGetConnUnsupportedType(t *testing.T) {
-	d := newFakeDriver()
-	p := newFakeProvider()
-	m, err := NewManager(NewManagerOptions().
-		Provider(p).
-		Drivers([]Driver{d}))
+	d, _, m, updateCh := initManagerTest(t, nil)
 
-	require.NoError(t, err)
-
-	p.updateCluster(cluster.NewCluster("c1", cluster.NewType("unknown-type"), "wow",
+	updateCh <- cluster.NewCluster("c1", cluster.NewType("unknown-type"), "wow",
 		cluster.NewConfig(1, mustMarshal(&configtest.TestConfig{
 			Hosts: []string{"h1", "h2", "h3"},
-		}))))
+		})))
 
 	d.unblockOpen()
 
@@ -232,18 +241,12 @@ func TestManagerGetConnUnsupportedType(t *testing.T) {
 }
 
 func TestManagerGetManagerClosedWhileDriverWorking(t *testing.T) {
-	d := newFakeDriver()
-	p := newFakeProvider()
-	m, err := NewManager(NewManagerOptions().
-		Provider(p).
-		Drivers([]Driver{d}))
+	d, _, m, updateCh := initManagerTest(t, nil)
 
-	require.NoError(t, err)
-
-	p.updateCluster(cluster.NewCluster("c1", fakeStorageType, "wow",
+	updateCh <- cluster.NewCluster("c1", fakeStorageType, "wow",
 		cluster.NewConfig(1, mustMarshal(&configtest.TestConfig{
 			Hosts: []string{"h1", "h2", "h3"},
-		}))))
+		})))
 
 	// Spin up a background goroutine to request the connection. This will
 	// block in the driver until we're ready to let it run
@@ -281,16 +284,10 @@ func TestManagerGetManagerClosedWhileDriverWorking(t *testing.T) {
 }
 
 func TestManagerGetConnUnmarshalConfigError(t *testing.T) {
-	d := newFakeDriver()
-	p := newFakeProvider()
-	m, err := NewManager(NewManagerOptions().
-		Provider(p).
-		Drivers([]Driver{d}))
+	_, _, m, updateCh := initManagerTest(t, nil)
 
-	require.NoError(t, err)
-
-	p.updateCluster(cluster.NewCluster("c1", fakeStorageType, "wow",
-		cluster.NewConfig(1, []byte("invalid-proto"))))
+	updateCh <- cluster.NewCluster("c1", fakeStorageType, "wow",
+		cluster.NewConfig(1, []byte("invalid-proto")))
 
 	conn, err := m.GetConn("wow", "c1")
 	require.Error(t, err)
@@ -298,19 +295,12 @@ func TestManagerGetConnUnmarshalConfigError(t *testing.T) {
 }
 
 func TestManagerReconfigureCluster(t *testing.T) {
-	d := newFakeDriver()
-	p := newFakeProvider()
-	m, err := NewManager(NewManagerOptions().
-		Provider(p).
-		Drivers([]Driver{d}).
-		Logger(xlog.SimpleLogger))
+	d, _, m, updateCh := initManagerTest(t, nil)
 
-	require.NoError(t, err)
-
-	p.updateCluster(cluster.NewCluster("c1", fakeStorageType, "wow",
+	updateCh <- cluster.NewCluster("c1", fakeStorageType, "wow",
 		cluster.NewConfig(1, mustMarshal(&configtest.TestConfig{
 			Hosts: []string{"h1", "h2", "h3"},
-		}))))
+		})))
 
 	// Get the initial connection
 	d.unblockOpen()
@@ -322,10 +312,10 @@ func TestManagerReconfigureCluster(t *testing.T) {
 	require.Equal(t, []string{"h1", "h2", "h3"}, fconn.TestConfig.Hosts)
 
 	// Update the connection, then wait a little bit for the watch goroutine to fire
-	p.updateCluster(cluster.NewCluster("c1", fakeStorageType, "wow",
+	updateCh <- cluster.NewCluster("c1", fakeStorageType, "wow",
 		cluster.NewConfig(2, mustMarshal(&configtest.TestConfig{
 			Hosts: []string{"h4"},
-		}))))
+		})))
 
 	time.Sleep(time.Millisecond * 150)
 
@@ -343,18 +333,12 @@ func TestManagerReconfigureCluster(t *testing.T) {
 }
 
 func TestManagerReconfigureClusterDriverFails(t *testing.T) {
-	d := newFakeDriver()
-	p := newFakeProvider()
-	m, err := NewManager(NewManagerOptions().
-		Provider(p).
-		Drivers([]Driver{d}))
+	d, _, m, updateCh := initManagerTest(t, nil)
 
-	require.NoError(t, err)
-
-	p.updateCluster(cluster.NewCluster("c1", fakeStorageType, "wow",
+	updateCh <- cluster.NewCluster("c1", fakeStorageType, "wow",
 		cluster.NewConfig(1, mustMarshal(&configtest.TestConfig{
 			Hosts: []string{"h1", "h2", "h3"},
-		}))))
+		})))
 
 	// Get the initial connection
 	d.unblockOpen()
@@ -367,10 +351,10 @@ func TestManagerReconfigureClusterDriverFails(t *testing.T) {
 
 	// Update the connection, then wait a little bit for the watch goroutine to fire
 	d.failOpen(errors.New("bad driver"))
-	p.updateCluster(cluster.NewCluster("c1", fakeStorageType, "wow",
+	updateCh <- cluster.NewCluster("c1", fakeStorageType, "wow",
 		cluster.NewConfig(2, mustMarshal(&configtest.TestConfig{
 			Hosts: []string{"h4"},
-		}))))
+		})))
 
 	time.Sleep(time.Millisecond * 150)
 
@@ -388,18 +372,12 @@ func TestManagerReconfigureClusterDriverFails(t *testing.T) {
 }
 
 func TestManagerReconfigureClusterUnmarshalError(t *testing.T) {
-	d := newFakeDriver()
-	p := newFakeProvider()
-	m, err := NewManager(NewManagerOptions().
-		Provider(p).
-		Drivers([]Driver{d}))
+	d, _, m, updateCh := initManagerTest(t, nil)
 
-	require.NoError(t, err)
-
-	p.updateCluster(cluster.NewCluster("c1", fakeStorageType, "wow",
+	updateCh <- cluster.NewCluster("c1", fakeStorageType, "wow",
 		cluster.NewConfig(1, mustMarshal(&configtest.TestConfig{
 			Hosts: []string{"h1", "h2", "h3"},
-		}))))
+		})))
 
 	// Get the initial connection
 	d.unblockOpen()
@@ -411,8 +389,8 @@ func TestManagerReconfigureClusterUnmarshalError(t *testing.T) {
 	require.Equal(t, []string{"h1", "h2", "h3"}, fconn.TestConfig.Hosts)
 
 	// Update the connection, then wait a little bit for the watch goroutine to fire
-	p.updateCluster(cluster.NewCluster("c1", fakeStorageType, "wow",
-		cluster.NewConfig(2, []byte("invalid-proto"))))
+	updateCh <- cluster.NewCluster("c1", fakeStorageType, "wow",
+		cluster.NewConfig(2, []byte("invalid-proto")))
 
 	time.Sleep(time.Millisecond * 150)
 
@@ -430,18 +408,12 @@ func TestManagerReconfigureClusterUnmarshalError(t *testing.T) {
 }
 
 func TestManagerReconfigureClusterUnsupportedType(t *testing.T) {
-	d := newFakeDriver()
-	p := newFakeProvider()
-	m, err := NewManager(NewManagerOptions().
-		Provider(p).
-		Drivers([]Driver{d}))
+	d, _, m, updateCh := initManagerTest(t, nil)
 
-	require.NoError(t, err)
-
-	p.updateCluster(cluster.NewCluster("c1", fakeStorageType, "wow",
+	updateCh <- cluster.NewCluster("c1", fakeStorageType, "wow",
 		cluster.NewConfig(1, mustMarshal(&configtest.TestConfig{
 			Hosts: []string{"h1", "h2", "h3"},
-		}))))
+		})))
 
 	// Get the initial connection
 	d.unblockOpen()
@@ -453,10 +425,10 @@ func TestManagerReconfigureClusterUnsupportedType(t *testing.T) {
 	require.Equal(t, []string{"h1", "h2", "h3"}, fconn.TestConfig.Hosts)
 
 	// Update the connection, then wait a little bit for the watch goroutine to fire
-	p.updateCluster(cluster.NewCluster("c1", cluster.NewType("unsupported"), "wow",
+	updateCh <- cluster.NewCluster("c1", cluster.NewType("unsupported"), "wow",
 		cluster.NewConfig(2, mustMarshal(&configtest.TestConfig{
 			Hosts: []string{"h1", "h2", "h3"},
-		}))))
+		})))
 
 	time.Sleep(time.Millisecond * 150)
 
@@ -474,20 +446,14 @@ func TestManagerReconfigureClusterUnsupportedType(t *testing.T) {
 	require.Equal(t, uint32(0), d.reconfigures)
 }
 
-func TestManagerCloseWithOpens(t *testing.T) {
-	d := newFakeDriver()
-	p := newFakeProvider()
-	m, err := NewManager(NewManagerOptions().
-		Provider(p).
-		Drivers([]Driver{d}))
-
-	require.NoError(t, err)
+func TestManagerCloseWithOpenConns(t *testing.T) {
+	d, _, m, updateCh := initManagerTest(t, nil)
 
 	d.unblockOpen()
-	p.updateCluster(cluster.NewCluster("c1", fakeStorageType, "wow",
+	updateCh <- cluster.NewCluster("c1", fakeStorageType, "wow",
 		cluster.NewConfig(1, mustMarshal(&configtest.TestConfig{
 			Hosts: []string{"h1", "h2", "h3"},
-		}))))
+		})))
 
 	// Get a connection
 	conn, err := m.GetConn("wow", "c1")
@@ -507,6 +473,24 @@ func TestManagerCloseWithOpens(t *testing.T) {
 	// Close again, this shouldn't do anything since we're already closed
 	m.Close()
 	require.Equal(t, uint32(1), fconn.closed)
+}
+
+func initManagerTest(t *testing.T, opts ManagerOptions,
+) (*fakeDriver, cluster.Provider, Manager, chan cluster.Cluster) {
+	d := newFakeDriver()
+
+	updateCh := make(chan cluster.Cluster, 1)
+	p, err := cluster.NewProvider(updateCh, cluster.ProviderOptions{})
+	require.NoError(t, err)
+
+	if opts == nil {
+		opts = NewManagerOptions()
+	}
+
+	m, err := NewManager(opts.Provider(p).Drivers([]Driver{d}))
+	require.NoError(t, err)
+
+	return d, p, m, updateCh
 }
 
 var (
@@ -589,53 +573,6 @@ func (conn *fakeConn) Close() error {
 	atomic.AddUint32(&conn.closed, 1)
 	return nil
 }
-
-type fakeProvider struct {
-	sync.Mutex
-	clusters map[string]xwatch.Watchable
-}
-
-func newFakeProvider() *fakeProvider {
-	return &fakeProvider{
-		clusters: make(map[string]xwatch.Watchable),
-	}
-}
-
-func (p *fakeProvider) updateCluster(c cluster.Cluster) {
-	key := c.Key()
-	p.Lock()
-	if w := p.clusters[key]; w != nil {
-		p.Unlock()
-		w.Update(c)
-		return
-	}
-
-	w := xwatch.NewWatchable()
-	p.clusters[key] = w
-	p.Unlock()
-
-	w.Update(c)
-}
-
-func (p *fakeProvider) WatchCluster(dbname, cname string) (cluster.Watch, error) {
-	key := cluster.FmtKey(dbname, cname)
-	p.Lock()
-	w := p.clusters[key]
-	p.Unlock()
-
-	if w == nil {
-		return nil, errors.New("cluster not found")
-	}
-
-	_, watch, err := w.Watch()
-	if err != nil {
-		return nil, err
-	}
-
-	return cluster.NewWatch(watch), nil
-}
-
-func (p *fakeProvider) Close() error { return nil }
 
 func mustMarshal(msg proto.Message) []byte {
 	b, err := proto.Marshal(msg)

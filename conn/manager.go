@@ -21,6 +21,7 @@ package conn
 import (
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/m3db/m3storage/cluster"
 	"github.com/m3db/m3x/close"
@@ -33,10 +34,12 @@ import (
 var (
 	errClosed                 = errors.New("closed")
 	errStorageTypeUnsupported = errors.New("unsupported storage type")
+	errTimeout                = errors.New("timeout waiting for config")
 
-	errManagerLogRequired      = errors.New("logger required")
-	errManagerDriversRequired  = errors.New("at least 1 driver required")
-	errManagerProviderRequired = errors.New("provider required")
+	errManagerLogRequired          = errors.New("logger required")
+	errManagerDriversRequired      = errors.New("at least 1 driver required")
+	errManagerProviderRequired     = errors.New("provider required")
+	errManagerWatchTimeoutRequired = errors.New("watch timeout required")
 )
 
 // ManagerOptions are creation time options for the Manager
@@ -53,6 +56,11 @@ type ManagerOptions interface {
 	Drivers(d []Driver) ManagerOptions
 	GetDrivers() []Driver
 
+	// WatchTimeout is the amount of time to wait for a cluster configuration to
+	// become available
+	WatchTimeout(d time.Duration) ManagerOptions
+	GetWatchTimeout() time.Duration
+
 	// Validate validates the options
 	Validate() error
 }
@@ -60,7 +68,8 @@ type ManagerOptions interface {
 // NewManagerOptions returns new empty ManagerOptions
 func NewManagerOptions() ManagerOptions {
 	return managerOptions{
-		log: xlog.NullLogger,
+		log:          xlog.NullLogger,
+		watchTimeout: time.Second,
 	}
 }
 
@@ -90,26 +99,28 @@ func NewManager(opts ManagerOptions) (Manager, error) {
 	}
 
 	return &manager{
-		log:      opts.GetLogger(),
-		conns:    make(map[string]Conn),
-		pending:  make(map[string]<-chan struct{}),
-		watches:  make(map[string]cluster.Watch),
-		drivers:  drivers,
-		provider: opts.GetProvider(),
+		watchTimeout: opts.GetWatchTimeout(),
+		log:          opts.GetLogger(),
+		conns:        make(map[string]Conn),
+		pending:      make(map[string]<-chan struct{}),
+		watches:      make(map[string]cluster.Watch),
+		drivers:      drivers,
+		provider:     opts.GetProvider(),
 	}, nil
 }
 
 type manager struct {
 	sync.RWMutex
 
-	log      xlog.Logger
-	conns    map[string]Conn
-	pending  map[string]<-chan struct{}
-	watches  map[string]cluster.Watch
-	drivers  map[string]Driver
-	provider cluster.Provider
-	closed   bool
-	wg       sync.WaitGroup
+	log          xlog.Logger
+	conns        map[string]Conn
+	pending      map[string]<-chan struct{}
+	watches      map[string]cluster.Watch
+	drivers      map[string]Driver
+	provider     cluster.Provider
+	watchTimeout time.Duration
+	closed       bool
+	wg           sync.WaitGroup
 }
 
 // GetConn retrieves a connection to the given dbname and cname
@@ -223,7 +234,12 @@ func (cm *manager) tryOpenConn(dbname, cname string) (Conn, error) {
 		cm.log.Errorf("failed to watch cname config for %s:%s: %v", dbname, cname, err)
 		return nil, err
 	}
-	<-cw.C()
+
+	select {
+	case <-cw.C():
+	case <-time.After(cm.watchTimeout):
+		return nil, errTimeout
+	}
 	cl := cw.Get()
 
 	// create the connection using the cname configuration
@@ -346,10 +362,11 @@ func (cm *manager) cleanupConn(dbname, cname string) {
 }
 
 type managerOptions struct {
-	log   xlog.Logger
-	clock clock.Clock
-	p     cluster.Provider
-	d     []Driver
+	log          xlog.Logger
+	clock        clock.Clock
+	p            cluster.Provider
+	watchTimeout time.Duration
+	d            []Driver
 }
 
 func (opts managerOptions) Validate() error {
@@ -365,11 +382,16 @@ func (opts managerOptions) Validate() error {
 		return errManagerProviderRequired
 	}
 
+	if opts.watchTimeout == 0 {
+		return errManagerWatchTimeoutRequired
+	}
+
 	return nil
 }
 
-func (opts managerOptions) GetLogger() xlog.Logger { return opts.log }
-func (opts managerOptions) GetDrivers() []Driver   { return opts.d }
+func (opts managerOptions) GetWatchTimeout() time.Duration { return opts.watchTimeout }
+func (opts managerOptions) GetLogger() xlog.Logger         { return opts.log }
+func (opts managerOptions) GetDrivers() []Driver           { return opts.d }
 func (opts managerOptions) GetProvider() cluster.Provider {
 	return opts.p
 }
@@ -386,5 +408,10 @@ func (opts managerOptions) Provider(p cluster.Provider) ManagerOptions {
 
 func (opts managerOptions) Drivers(d []Driver) ManagerOptions {
 	opts.d = d
+	return opts
+}
+
+func (opts managerOptions) WatchTimeout(t time.Duration) ManagerOptions {
+	opts.watchTimeout = t
 	return opts
 }
