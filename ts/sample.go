@@ -18,19 +18,9 @@
 
 package ts
 
-// A Downsampler combines multiple datapoints that appear within the
-// same time interval to produce a single downsampled result
-type Downsampler interface {
-	// Reset rests the downsampler to store results in the given values
-	Reset(vals SeriesValues)
-
-	// AddDatapoint adds a datapoint sample to the given interval
-	AddDatapoint(n int, v float64)
-
-	// AddSample adds a new samples datapoint to the given interval
-	AddSample(n int, s Sample)
-
-	// Finish tells the downsampler we're complete and the final values should be
-	// computed (if they are not already)
-	Finish()
+// A Sample is a sample of a set of datapoints, containing the computed
+// statistics for those datapoints
+type Sample struct {
+	Count                       int
+	Min, Max, Mean, Sum, StdDev float64
 }

@@ -51,7 +51,14 @@ func TestSum(t *testing.T) {
 	testDownsample(t, Sum(),
 		[]float64{9, math.NaN(), 75.5, 5},
 		[]float64{math.NaN(), 11, 18, 7},
-		[]float64{9, 11, 93.5, 12})
+		[]Sample{
+			{Sum: 12},
+			{Sum: math.NaN()},
+			{Sum: 6},
+			{Sum: 4},
+		},
+
+		[]float64{21, 11, 99.5, 16})
 
 }
 
@@ -59,34 +66,62 @@ func TestMean(t *testing.T) {
 	testDownsample(t, Mean(),
 		[]float64{9, math.NaN(), 75.5, 5},
 		[]float64{math.NaN(), 11, 18, 7},
-		[]float64{9, 11, 46.75, 6})
+		[]Sample{
+			{Count: 0},
+			{Count: 1, Mean: 12},
+			{Count: 2, Mean: 4},
+			{Count: 0},
+		},
+
+		[]float64{9, 11.5, 32.5, 6})
 }
 
 func TestMax(t *testing.T) {
 	testDownsample(t, Max(),
 		[]float64{9, math.NaN(), 75.5, 5},
 		[]float64{math.NaN(), 11, 18, 7},
-		[]float64{9, 11, 75.5, 7})
+		[]Sample{
+			{Max: 7},
+			{Max: 13},
+			{Max: math.NaN()},
+			{Max: 4},
+		},
+
+		[]float64{9, 13, 75.5, 7})
 }
 
 func TestMin(t *testing.T) {
 	testDownsample(t, Min(),
 		[]float64{9, math.NaN(), 75.5, 5},
 		[]float64{math.NaN(), 11, 18, 7},
-		[]float64{9, 11, 18, 5})
+		[]Sample{
+			{Min: 7},
+			{Min: 24},
+			{Min: math.NaN()},
+			{Min: 12},
+		},
+
+		[]float64{7, 11, 18, 5})
 }
 
 func TestCount(t *testing.T) {
 	testDownsample(t, Count(),
 		[]float64{9, math.NaN(), 75.5, 5},
 		[]float64{math.NaN(), 11, 18, 7},
-		[]float64{1, 1, 2, 2})
+		[]Sample{
+			{Count: 3},
+			{Count: 0},
+			{Count: 1},
+			{Count: 9},
+		},
 
+		[]float64{4, 1, 3, 11})
 }
 
-func testDownsample(t *testing.T, d Downsampler, a, b, results []float64) {
+func testDownsample(t *testing.T, d Downsampler, a, b []float64, samples []Sample, results []float64) {
 	require.Equal(t, len(a), len(b))
 	require.Equal(t, len(a), len(results))
+	require.Equal(t, len(a), len(samples))
 
 	vals := make(Float64SeriesValues, len(a))
 	vals.Reset()
@@ -95,6 +130,7 @@ func testDownsample(t *testing.T, d Downsampler, a, b, results []float64) {
 	for n := range a {
 		d.AddDatapoint(n, a[n])
 		d.AddDatapoint(n, b[n])
+		d.AddSample(n, samples[n])
 	}
 
 	d.Finish()

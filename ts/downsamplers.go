@@ -38,44 +38,37 @@ func NaNSafe(f func(a, b float64) float64) func(float64, float64) float64 {
 	}
 }
 
-// With returns a downsampler that uses the provided function to
-// combine the new sample with the existing downsampled value
-func With(f func(float64, float64) float64) Downsampler {
-	return &simpleDownsampler{f: f}
+// With returns a downsampler that uses the provided functions to combine new
+// datapoints and new samples with the existing downsampled value
+func With(f func(float64, float64) float64, fromSample func(Sample) float64) Downsampler {
+	return &simpleDownsampler{f: f, fromSample: fromSample}
 }
 
 // Min returns a Downsampler that picks the minimum value as the sample
-func Min() Downsampler { return With(NaNSafe(math.Min)) }
+func Min() Downsampler {
+	return With(NaNSafe(math.Min), func(s Sample) float64 { return s.Min })
+}
 
 // Max returns a Downsampler that picks the maximum value as the sample
-func Max() Downsampler { return With(NaNSafe(math.Max)) }
+func Max() Downsampler { return With(NaNSafe(math.Max), func(s Sample) float64 { return s.Max }) }
 
 // Count returns a Downsampler that counts the number of samples in the interval
-func Count() Downsampler {
-	return With(func(a, b float64) float64 {
-		if math.IsNaN(b) {
-			return a
-		}
-
-		if math.IsNaN(a) {
-			return 1
-		}
-
-		return a + 1
-	})
-}
+func Count() Downsampler { return new(countDownsampler) }
 
 // Sum returns a Downsampler that adds the samples togher
 func Sum() Downsampler {
-	return With(NaNSafe(func(a, b float64) float64 { return a + b }))
+	return With(
+		NaNSafe(func(a, b float64) float64 { return a + b }),
+		func(s Sample) float64 { return s.Sum })
 }
 
 // Mean returns a Downsampler that calculates the mean of all samples in the interval
 func Mean() Downsampler { return new(meanDownsampler) }
 
 type simpleDownsampler struct {
-	f    func(float64, float64) float64
-	vals SeriesValues
+	f          func(float64, float64) float64
+	fromSample func(Sample) float64
+	vals       SeriesValues
 }
 
 func (d *simpleDownsampler) Reset(vals SeriesValues) { d.vals = vals }
@@ -84,6 +77,40 @@ func (d *simpleDownsampler) AddDatapoint(n int, v float64) {
 	cur := d.vals.ValueAt(n)
 	d.vals.SetValueAt(n, d.f(cur, v))
 }
+func (d *simpleDownsampler) AddSample(n int, s Sample) {
+	d.AddDatapoint(n, d.fromSample(s))
+}
+
+type countDownsampler struct {
+	vals SeriesValues
+}
+
+func (d *countDownsampler) Reset(vals SeriesValues) {
+	d.vals = vals
+}
+
+func (d *countDownsampler) AddDatapoint(n int, v float64) {
+	if math.IsNaN(v) {
+		return
+	}
+
+	d.addCount(n, 1)
+}
+
+func (d *countDownsampler) AddSample(n int, s Sample) {
+	d.addCount(n, s.Count)
+}
+
+func (d *countDownsampler) addCount(n int, c int) {
+	cur := d.vals.ValueAt(n)
+	if math.IsNaN(cur) {
+		d.vals.SetValueAt(n, float64(c))
+	} else {
+		d.vals.SetValueAt(n, cur+float64(c))
+	}
+}
+
+func (d *countDownsampler) Finish() {}
 
 type meanDownsampler struct {
 	vals   SeriesValues
@@ -101,16 +128,28 @@ func (d *meanDownsampler) AddDatapoint(n int, v float64) {
 		return
 	}
 
+	d.addMean(n, v, 1)
+}
+
+func (d *meanDownsampler) AddSample(n int, s Sample) {
+	d.addMean(n, s.Mean, s.Count)
+}
+
+func (d *meanDownsampler) addMean(n int, sampleMean float64, sampleCount int) {
+	if sampleCount == 0 {
+		return
+	}
+
 	count := d.counts[n]
 	if count == 0 {
-		d.vals.SetValueAt(n, v)
-		d.counts[n] = 1
+		d.vals.SetValueAt(n, sampleMean)
+		d.counts[n] = sampleCount
 		return
 	}
 
 	cur := d.vals.ValueAt(n)
-	d.counts[n]++
-	d.vals.SetValueAt(n, (cur*float64(count)+v)/float64(count+1))
+	d.counts[n] += sampleCount
+	d.vals.SetValueAt(n, (cur*float64(count)+sampleMean)/float64(count+1))
 }
 
 func (d *meanDownsampler) Finish() {}
