@@ -1,5 +1,5 @@
-hash: 0e125e32405c080c7c9886e2332745644f904ad0ff1766c243abf40e38645c07
-updated: 2016-09-01T14:26:22.90988474-04:00
+hash: 8973768f16a01bc42ce5a466900c63a16db8463f48bc6f2819f5430c03ed5814
+updated: 2016-09-18T08:08:40.903474955-04:00
 imports:
 - name: github.com/facebookgo/clock
   version: 600d898af40aa09a7a93ecb9265d87b0504b6f03
@@ -8,23 +8,25 @@ imports:
   subpackages:
   - gomock
 - name: github.com/golang/protobuf
-  version: 1f49d83d9aa00e6ce4fc8258c71cc7786aec968a
+  version: 7390af9dcd3c33042ebaf2474a1724a83cf1a7e6
   subpackages:
   - proto
   - protoc-gen-go
 - name: github.com/m3db/m3cluster
   version: 4f49de9fa91d2aa5670e72bb67590d81b7c61d5f
   subpackages:
-  - changeset
   - kv
+  - changeset
   - generated/proto/changesetpb
 - name: github.com/m3db/m3x
-  version: e619ed7a93221fde8a88754168de1a70c78484cb
+  version: bafb005b9448e769f5c565ae86270146917cc89b
   subpackages:
   - close
   - log
   - time
   - watch
+- name: github.com/spaolacci/murmur3
+  version: 0d12bf811670bf6a1a63828dfbd003eded177fce
 - name: github.com/stretchr/testify
   version: d77da356e56a7428ad25149ca77381849a6a5232
   subpackages:
