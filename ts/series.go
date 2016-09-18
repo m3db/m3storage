@@ -104,3 +104,11 @@ type SeriesValuesPool interface {
 	// Release releases previously allocated values
 	Release(v SeriesValues)
 }
+
+// DirectAllocValuesPool uses direct allocation to return values
+var DirectAllocValuesPool = new(directValuesAllocPool)
+
+type directValuesAllocPool struct{}
+
+func (p directValuesAllocPool) New(len int) SeriesValues { return make(Float64SeriesValues, len) }
+func (p directValuesAllocPool) Release(s SeriesValues)   {}
