@@ -39,6 +39,7 @@ type databaseRules struct {
 	name               string
 	version            int32
 	maxRetentionInSecs int32
+	numShards          uint
 	active             []*activeRule
 	log                xlog.Logger
 }
@@ -48,6 +49,7 @@ func newDatabaseRules(dbConfig *schema.Database, log xlog.Logger) (*databaseRule
 	dbr := &databaseRules{
 		name:               dbConfig.Properties.Name,
 		version:            -1, // apply all rules
+		numShards:          uint(dbConfig.Properties.NumShards),
 		maxRetentionInSecs: dbConfig.Properties.MaxRetentionInSecs,
 		log:                log,
 	}
@@ -65,6 +67,7 @@ func (dbr *databaseRules) clone() *databaseRules {
 		name:               dbr.name,
 		version:            dbr.version,
 		maxRetentionInSecs: dbr.maxRetentionInSecs,
+		numShards:          dbr.numShards,
 		active:             make([]*activeRule, len(dbr.active)),
 		log:                dbr.log,
 	}
@@ -178,8 +181,9 @@ func (dbr *databaseRules) applyTransitions(transitions []*schema.ShardTransition
 
 // findRulesForShard finds the active rules for a given shard
 func (dbr *databaseRules) findRulesForShard(shard uint) *rule {
+	dbShard := shard % dbr.numShards
 	for _, r := range dbr.active {
-		if r.shards.Test(shard) {
+		if r.shards.Test(dbShard) {
 			return r.rule
 		}
 	}
