@@ -28,6 +28,7 @@ import (
 	"github.com/m3db/m3storage/cluster"
 	"github.com/m3db/m3storage/generated/proto/configtest"
 	"github.com/m3db/m3storage/retention"
+	"github.com/m3db/m3storage/ts"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/stretchr/testify/require"
@@ -67,7 +68,7 @@ func TestManagerGetConn(t *testing.T) {
 
 	conn, err := m.GetConn("wow", "c1")
 	require.NoError(t, err)
-	fconn, ok := conn.(*fakeConn)
+	fconn, ok := conn.(*managerTestConn)
 	require.True(t, ok)
 	require.Equal(t, []string{"h1", "h2", "h3"}, fconn.TestConfig.Hosts)
 	require.Equal(t, uint32(1), d.opens)
@@ -173,7 +174,7 @@ func TestManagerGetConnConcurrentRetrieveDifferentConnts(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, conn1)
 
-	fconn1 := conn1.(*fakeConn)
+	fconn1 := conn1.(*managerTestConn)
 	require.Equal(t, []string{"h4"}, fconn1.TestConfig.Hosts)
 
 	// Make the first cluster available. This will unblock the retrieval of
@@ -189,7 +190,7 @@ func TestManagerGetConnConcurrentRetrieveDifferentConnts(t *testing.T) {
 	require.NoError(t, <-errorCh)
 	conn2 := <-connCh
 	require.NotNil(t, conn2)
-	fconn2 := conn2.(*fakeConn)
+	fconn2 := conn2.(*managerTestConn)
 	require.Equal(t, []string{"h1", "h2", "h3"}, fconn2.TestConfig.Hosts)
 }
 
@@ -307,7 +308,7 @@ func TestManagerReconfigureCluster(t *testing.T) {
 	conn, err := m.GetConn("wow", "c1")
 	require.NoError(t, err)
 
-	fconn, ok := conn.(*fakeConn)
+	fconn, ok := conn.(*managerTestConn)
 	require.True(t, ok)
 	require.Equal(t, []string{"h1", "h2", "h3"}, fconn.TestConfig.Hosts)
 
@@ -323,7 +324,7 @@ func TestManagerReconfigureCluster(t *testing.T) {
 	conn, err = m.GetConn("wow", "c1")
 	require.NoError(t, err)
 
-	fconn, ok = conn.(*fakeConn)
+	fconn, ok = conn.(*managerTestConn)
 	require.True(t, ok)
 	require.Equal(t, []string{"h4"}, fconn.TestConfig.Hosts)
 
@@ -345,7 +346,7 @@ func TestManagerReconfigureClusterDriverFails(t *testing.T) {
 	conn, err := m.GetConn("wow", "c1")
 	require.NoError(t, err)
 
-	fconn, ok := conn.(*fakeConn)
+	fconn, ok := conn.(*managerTestConn)
 	require.True(t, ok)
 	require.Equal(t, []string{"h1", "h2", "h3"}, fconn.TestConfig.Hosts)
 
@@ -362,7 +363,7 @@ func TestManagerReconfigureClusterDriverFails(t *testing.T) {
 	conn, err = m.GetConn("wow", "c1")
 	require.NoError(t, err)
 
-	fconn, ok = conn.(*fakeConn)
+	fconn, ok = conn.(*managerTestConn)
 	require.True(t, ok)
 	require.Equal(t, []string{"h1", "h2", "h3"}, fconn.TestConfig.Hosts)
 
@@ -384,7 +385,7 @@ func TestManagerReconfigureClusterUnmarshalError(t *testing.T) {
 	conn, err := m.GetConn("wow", "c1")
 	require.NoError(t, err)
 
-	fconn, ok := conn.(*fakeConn)
+	fconn, ok := conn.(*managerTestConn)
 	require.True(t, ok)
 	require.Equal(t, []string{"h1", "h2", "h3"}, fconn.TestConfig.Hosts)
 
@@ -398,7 +399,7 @@ func TestManagerReconfigureClusterUnmarshalError(t *testing.T) {
 	conn, err = m.GetConn("wow", "c1")
 	require.NoError(t, err)
 
-	fconn, ok = conn.(*fakeConn)
+	fconn, ok = conn.(*managerTestConn)
 	require.True(t, ok)
 	require.Equal(t, []string{"h1", "h2", "h3"}, fconn.TestConfig.Hosts)
 
@@ -420,7 +421,7 @@ func TestManagerReconfigureClusterUnsupportedType(t *testing.T) {
 	conn, err := m.GetConn("wow", "c1")
 	require.NoError(t, err)
 
-	fconn, ok := conn.(*fakeConn)
+	fconn, ok := conn.(*managerTestConn)
 	require.True(t, ok)
 	require.Equal(t, []string{"h1", "h2", "h3"}, fconn.TestConfig.Hosts)
 
@@ -436,7 +437,7 @@ func TestManagerReconfigureClusterUnsupportedType(t *testing.T) {
 	conn, err = m.GetConn("wow", "c1")
 	require.NoError(t, err)
 
-	fconn, ok = conn.(*fakeConn)
+	fconn, ok = conn.(*managerTestConn)
 	require.True(t, ok)
 	require.Equal(t, []string{"h1", "h2", "h3"}, fconn.TestConfig.Hosts)
 
@@ -459,7 +460,7 @@ func TestManagerCloseWithOpenConns(t *testing.T) {
 	conn, err := m.GetConn("wow", "c1")
 	require.NoError(t, err)
 
-	fconn, ok := conn.(*fakeConn)
+	fconn, ok := conn.(*managerTestConn)
 	require.True(t, ok)
 	require.Equal(t, []string{"h1", "h2", "h3"}, fconn.TestConfig.Hosts)
 
@@ -476,7 +477,7 @@ func TestManagerCloseWithOpenConns(t *testing.T) {
 }
 
 func initManagerTest(t *testing.T, opts ManagerOptions,
-) (*fakeDriver, cluster.Provider, Manager, chan cluster.Cluster) {
+) (*managerTestDriver, cluster.Provider, Manager, chan cluster.Cluster) {
 	d := newFakeDriver()
 
 	updateCh := make(chan cluster.Cluster, 1)
@@ -497,7 +498,7 @@ var (
 	fakeStorageType = cluster.NewType("fake")
 )
 
-type fakeDriver struct {
+type managerTestDriver struct {
 	opens        uint32
 	reconfigures uint32
 	openCalled   chan struct{}
@@ -505,29 +506,29 @@ type fakeDriver struct {
 	fail         error
 }
 
-func newFakeDriver() *fakeDriver {
-	return &fakeDriver{
+func newFakeDriver() *managerTestDriver {
+	return &managerTestDriver{
 		openAllowed: make(chan struct{}),
 		openCalled:  make(chan struct{}, 10),
 	}
 }
 
-func (d *fakeDriver) failOpen(err error) {
+func (d *managerTestDriver) failOpen(err error) {
 	d.fail = err
 }
 
-func (d *fakeDriver) waitForOpen() {
+func (d *managerTestDriver) waitForOpen() {
 	<-d.openCalled
 }
 
-func (d *fakeDriver) unblockOpen() {
+func (d *managerTestDriver) unblockOpen() {
 	close(d.openAllowed)
 }
 
-func (d *fakeDriver) ConfigType() proto.Message { return &configtest.TestConfig{} }
-func (d *fakeDriver) Type() cluster.Type        { return fakeStorageType }
-func (d *fakeDriver) Close() error              { return nil }
-func (d *fakeDriver) Open(cfg proto.Message) (Conn, error) {
+func (d *managerTestDriver) ConfigType() proto.Message { return &configtest.TestConfig{} }
+func (d *managerTestDriver) Type() cluster.Type        { return fakeStorageType }
+func (d *managerTestDriver) Close() error              { return nil }
+func (d *managerTestDriver) Open(cfg proto.Message) (Conn, error) {
 	select {
 	case d.openCalled <- struct{}{}:
 	default:
@@ -539,37 +540,37 @@ func (d *fakeDriver) Open(cfg proto.Message) (Conn, error) {
 		return nil, d.fail
 	}
 
-	return &fakeConn{
+	return &managerTestConn{
 		TestConfig: *(cfg.(*configtest.TestConfig)),
 	}, nil
 }
 
-func (d *fakeDriver) Reconfigure(conn Conn, cfg proto.Message) (Conn, error) {
+func (d *managerTestDriver) Reconfigure(conn Conn, cfg proto.Message) (Conn, error) {
 	atomic.AddUint32(&d.reconfigures, 1)
 
 	if d.fail != nil {
 		return nil, d.fail
 	}
 
-	return &fakeConn{
+	return &managerTestConn{
 		TestConfig: *(cfg.(*configtest.TestConfig)),
 	}, nil
 }
 
-type fakeConn struct {
+type managerTestConn struct {
 	configtest.TestConfig
 	closed uint32
 }
 
-func (conn *fakeConn) Read(id string, r retention.Resolution, start, end time.Time) (SeriesIter, error) {
+func (conn *managerTestConn) Read(id string, r retention.Resolution, start, end time.Time) (ts.SeriesIter, error) {
 	return nil, nil
 }
 
-func (conn *fakeConn) Write(id string, r retention.Resolution, t time.Time, v float64) error {
+func (conn *managerTestConn) Write(id string, r retention.Resolution, t time.Time, v float64) error {
 	return nil
 }
 
-func (conn *fakeConn) Close() error {
+func (conn *managerTestConn) Close() error {
 	atomic.AddUint32(&conn.closed, 1)
 	return nil
 }
