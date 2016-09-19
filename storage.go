@@ -89,7 +89,7 @@ type ManagerOptions interface {
 	WorkerPool(workers xsync.WorkerPool) ManagerOptions
 	GetWorkerPool() xsync.WorkerPool
 
-	Drivers(d []conn.Driver) ManagerOptions
+	Drivers(d ...conn.Driver) ManagerOptions
 	GetDrivers() []conn.Driver
 
 	Validate() error
@@ -346,7 +346,7 @@ func (opts managerOptions) Logger(logger xlog.Logger) ManagerOptions {
 	return opts
 }
 
-func (opts managerOptions) Drivers(d []conn.Driver) ManagerOptions {
+func (opts managerOptions) Drivers(d ...conn.Driver) ManagerOptions {
 	opts.d = d
 	return opts
 }
