@@ -110,5 +110,10 @@ var DirectAllocValuesPool = new(directValuesAllocPool)
 
 type directValuesAllocPool struct{}
 
-func (p directValuesAllocPool) New(len int) SeriesValues { return make(Float64SeriesValues, len) }
-func (p directValuesAllocPool) Release(s SeriesValues)   {}
+func (p directValuesAllocPool) New(len int) SeriesValues {
+	vals := make(Float64SeriesValues, len)
+	vals.Reset()
+	return vals
+}
+
+func (p directValuesAllocPool) Release(s SeriesValues) {}
