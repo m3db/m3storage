@@ -35,10 +35,8 @@ import (
 )
 
 var (
-	errFakeNoSuchHost   = errors.New("no such host")
-	errFakeNoSuchSeries = errors.New("no such series")
-	errFakeOneHostOnly  = errors.New("one host only")
-	errFakeClosed       = errors.New("driver closed")
+	errFakeOneHostOnly = errors.New("one host only")
+	errFakeClosed      = errors.New("driver closed")
 )
 
 // FakeDriverOptions are options to the fake driver
@@ -86,12 +84,12 @@ func (d *fakeDriver) read(h, id string, start, end time.Time) (ts.SeriesIter, er
 
 	host := d.hosts[h]
 	if host == nil {
-		return nil, errFakeNoSuchHost
+		return emptyFakeIter{r: d.r}, nil
 	}
 
 	series := host[id]
 	if series == nil {
-		return nil, errFakeNoSuchSeries
+		return emptyFakeIter{r: d.r}, nil
 	}
 
 	var (

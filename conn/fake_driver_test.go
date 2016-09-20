@@ -49,16 +49,16 @@ func TestFakeDriver(t *testing.T) {
 	_, ok := cfgType.(*configtest.TestConfig)
 	require.True(t, ok)
 
-	// No hosts
+	// No writes == no datapoints
 	iter, err := c.Read("foo", r, testStart, testStart.Add(time.Hour))
-	require.Equal(t, errFakeNoSuchHost, err)
-	require.Nil(t, iter)
+	require.NoError(t, err)
+	require.False(t, iter.Next())
 
-	// No series
+	// No series == no datapoints
 	require.NoError(t, c.Write("bar", r, testStart.Add(-time.Minute), 200))
 	iter, err = c.Read("foo", r, testStart, testStart.Add(time.Hour))
-	require.Equal(t, errFakeNoSuchSeries, err)
-	require.Nil(t, iter)
+	require.NoError(t, err)
+	require.False(t, iter.Next())
 
 	// Fill in a series, in reverse order.  Will be sorted on retrieval
 	for i := 0; i <= 120; i++ {
@@ -119,8 +119,8 @@ func TestFakeDriver(t *testing.T) {
 
 	// Should not be able to find series due to pointing to a different host
 	iter, err = c.Read("foo", r, testStart, testStart.Add(time.Hour*48))
-	require.Equal(t, errFakeNoSuchHost, err)
-	require.Nil(t, iter)
+	require.NoError(t, err)
+	require.False(t, iter.Next())
 
 	// Reconfigure back to the original host, should be able to find the series again
 	c, _ = d.Reconfigure(c, configtest.NewTestConfig("h1"))
