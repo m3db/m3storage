@@ -39,7 +39,7 @@ func TestFakeDriver(t *testing.T) {
 		r           = retention.NewResolution(time.Second, xtime.Millisecond)
 		testStart   = clock.Now().Truncate(time.Minute)
 		clusterType = cluster.NewType("fake")
-		d           = NewFakeDriver(clusterType, time.Second*10)
+		d           = NewFakeDriver(clusterType, time.Second*10, nil)
 		c, _        = d.Open(configtest.NewTestConfig("h1"))
 	)
 
@@ -84,7 +84,7 @@ func TestFakeDriver(t *testing.T) {
 			3, 0, 0},
 		{"end after end",
 			time.Second, time.Hour * 24,
-			119, time.Minute, 1},
+			120, time.Minute, 1},
 		{"start after end",
 			time.Hour * 24, time.Hour * 58,
 			0, 0, 0},

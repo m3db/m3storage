@@ -28,6 +28,7 @@ import (
 	"github.com/m3db/m3storage/generated/proto/configtest"
 	"github.com/m3db/m3storage/retention"
 	"github.com/m3db/m3storage/ts"
+	"github.com/m3db/m3x/log"
 	"github.com/m3db/m3x/time"
 
 	"github.com/golang/protobuf/proto"
@@ -40,12 +41,27 @@ var (
 	errFakeClosed       = errors.New("driver closed")
 )
 
+// FakeDriverOptions are options to the fake driver
+type FakeDriverOptions struct {
+	Logger xlog.Logger
+}
+
 // NewFakeDriver returns a new fake Driver
-func NewFakeDriver(clusterType cluster.Type, windowSize time.Duration) Driver {
+func NewFakeDriver(clusterType cluster.Type, windowSize time.Duration, opts *FakeDriverOptions) Driver {
+	if opts == nil {
+		opts = new(FakeDriverOptions)
+	}
+
+	log := opts.Logger
+	if log == nil {
+		log = xlog.NullLogger
+	}
+
 	return &fakeDriver{
 		clusterType: clusterType,
 		r:           retention.NewResolution(windowSize, xtime.Millisecond),
 		hosts:       make(map[string]map[string][]datapoint),
+		log:         log,
 	}
 }
 
@@ -55,9 +71,12 @@ type fakeDriver struct {
 	r           retention.Resolution
 	hosts       map[string]map[string][]datapoint
 	closed      bool
+	log         xlog.Logger
 }
 
 func (d *fakeDriver) read(h, id string, start, end time.Time) (ts.SeriesIter, error) {
+	d.log.Debugf("read %s from %s (%s to %s)", id, h, start.String(), end.String())
+
 	d.RLock()
 	defer d.RUnlock()
 
@@ -88,10 +107,6 @@ func (d *fakeDriver) read(h, id string, start, end time.Time) (ts.SeriesIter, er
 		istart = 0
 	}
 
-	if iend >= len(series) {
-		iend = len(series) - 1
-	}
-
 	return &fakeIter{
 		r:      d.r,
 		points: series[istart:iend],
@@ -100,6 +115,8 @@ func (d *fakeDriver) read(h, id string, start, end time.Time) (ts.SeriesIter, er
 }
 
 func (d *fakeDriver) write(h, id string, t time.Time, v float64) error {
+	d.log.Debugf("write %s to %s (%s:%f)", id, h, t.String(), v)
+
 	d.Lock()
 	defer d.Unlock()
 	if d.closed {
