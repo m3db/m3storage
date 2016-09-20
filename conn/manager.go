@@ -255,6 +255,7 @@ func (cm *manager) tryOpenConn(dbname, cname string) (Conn, error) {
 		return nil, err
 	}
 
+	cm.log.Infof("created connection for %s:%s", dbname, cname)
 	return conn, nil
 }
 
