@@ -1,3 +1,6 @@
+SELF_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
+include $(SELF_DIR)/.ci/common.mk
+
 SHELL=/bin/bash -o pipefail
 
 html_report := coverage.html
@@ -30,7 +33,7 @@ lint:
 
 test-internal:
 	@which go-junit-report > /dev/null || go get -u github.com/sectioneight/go-junit-report
-	@$(VENDOR_ENV) $(test) $(coverfile) | tee $(test_log)
+	$(test) $(coverfile) | tee $(test_log)
 
 test-xml: test-internal
 	go-junit-report < $(test_log) > $(junit_xml)
@@ -48,10 +51,6 @@ testhtml: test-internal
 test-ci-unit: test-internal
 	@which goveralls > /dev/null || go get -u -f github.com/mattn/goveralls
 	goveralls -coverprofile=$(coverfile) -service=travis-ci || echo -e "\x1b[31mCoveralls failed\x1b[m"
-
-install-vendor: .gitmodules
-	@echo Updating submodules
-	git submodule update --init --recursive
 
 install-license-bin: install-vendor
 	@echo Installing node modules
