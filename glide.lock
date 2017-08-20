@@ -1,5 +1,5 @@
-hash: 0e125e32405c080c7c9886e2332745644f904ad0ff1766c243abf40e38645c07
-updated: 2016-09-01T14:26:22.90988474-04:00
+hash: b556af45812ae1f820f06e436bce85fe6a0a148a0b5508f735c9b2766dc3f835
+updated: 2017-08-19T22:11:54.22570595-04:00
 imports:
 - name: github.com/facebookgo/clock
   version: 600d898af40aa09a7a93ecb9265d87b0504b6f03
@@ -16,8 +16,8 @@ imports:
   version: 4f49de9fa91d2aa5670e72bb67590d81b7c61d5f
   subpackages:
   - changeset
-  - kv
   - generated/proto/changesetpb
+  - kv
 - name: github.com/m3db/m3x
   version: e619ed7a93221fde8a88754168de1a70c78484cb
   subpackages:
@@ -32,4 +32,12 @@ imports:
   - require
 - name: github.com/willf/bitset
   version: 1730870b454dde6756091d8c6a3d780ef123674c
-devImports: []
+testImports:
+- name: github.com/davecgh/go-spew
+  version: 5215b55f46b2b919f50a1df0eaa5886afe4e3b3d
+  subpackages:
+  - spew
+- name: github.com/pmezard/go-difflib
+  version: d8ed2627bdf02c080bf22230dbb337003b7aba2d
+  subpackages:
+  - difflib

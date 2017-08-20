@@ -7,7 +7,6 @@ coverfile := cover.out
 coverage_xml := coverage.xml
 junit_xml := junit.xml
 test_log := test.log
-test_target := .
 lint_check := .ci/lint.sh
 package_root := github.com/m3db/m3storage
 vendor_prefix := vendor
@@ -31,7 +30,7 @@ lint:
 
 test-internal:
 	@which go-junit-report > /dev/null || go get -u github.com/sectioneight/go-junit-report
-	@$(VENDOR_ENV) $(test) $(test_target) $(coverfile) | tee $(test_log)
+	@$(VENDOR_ENV) $(test) $(coverfile) | tee $(test_log)
 
 test-xml: test-internal
 	go-junit-report < $(test_log) > $(junit_xml)
@@ -58,7 +57,7 @@ install-license-bin: install-vendor
 	@echo Installing node modules
 	[ -d $(license_node_modules) ] || (cd $(license_dir) && npm install)
 
-install-proto-bin: install-vendor 
+install-proto-bin: install-vendor
 	@echo Installing protobuf binaries
 	@echo Note: the protobuf compiler v3.0.0 can be downloaded from https://github.com/google/protobuf/releases or built from source at https://github.com/google/protobuf.
 	go install $(package_root)/$(vendor_prefix)/$(protoc_go_package)

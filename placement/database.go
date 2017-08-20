@@ -74,13 +74,14 @@ func newDatabase(dbConfig *schema.Database, log xlog.Logger) (*database, error) 
 // update updates the database with new mapping information
 func (db *database) update(dbConfig *schema.Database) error {
 	// Short circuit if we are already at the proper version
+	db.RLock()
 	if db.version >= dbConfig.Version {
+		db.RUnlock()
 		return nil
 	}
 
 	// Clone mapping information so that users performing lookups don't block
 	// while we're building the updates
-	db.RLock()
 	newMappings := db.mappings.clone()
 	db.RUnlock()
 

@@ -1,18 +1,31 @@
 package: github.com/m3db/m3storage
 import:
 - package: github.com/facebookgo/clock
+  version: 600d898af40aa09a7a93ecb9265d87b0504b6f03
 - package: github.com/golang/protobuf
+  version: 1f49d83d9aa00e6ce4fc8258c71cc7786aec968a
   subpackages:
   - proto
   - protoc-gen-go
 - package: github.com/stretchr/testify
+  version: d77da356e56a7428ad25149ca77381849a6a5232
   subpackages:
   - assert
-  - require    
+  - require
 - package: github.com/willf/bitset
-- package: github.com/golang/mock    
+  version: 1730870b454dde6756091d8c6a3d780ef123674c
+- package: github.com/golang/mock
+  version: bd3c8e81be01eef76d4b503f5e687d2d1354d2d9
 - package: github.com/m3db/m3x
+  version: e619ed7a93221fde8a88754168de1a70c78484cb
   subpackages:
   - close
   - log
   - time
+  - watch
+- package: github.com/m3db/m3cluster
+  version: 4f49de9fa91d2aa5670e72bb67590d81b7c61d5f
+  subpackages:
+  - changeset
+  - kv
+  - generated/proto/changesetpb
