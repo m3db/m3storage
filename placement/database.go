@@ -83,7 +83,6 @@ func (db *database) update(dbConfig *schema.Database) error {
 	// Clone mapping information so that users performing lookups don't block
 	// while we're building the updates
 	newMappings := db.mappings.clone()
-	db.RUnlock()
 
 	// Apply new rules, also determining which cluster versions have changed
 	sort.Sort(mappingRuleSetsByVersion(dbConfig.MappingRules))
@@ -94,9 +93,11 @@ func (db *database) update(dbConfig *schema.Database) error {
 		}
 
 		if err := newMappings.apply(rules, newClusterVersions); err != nil {
+			db.RUnlock()
 			return err
 		}
 	}
+	db.RUnlock()
 
 	// Update clusters which are either new or have changed (protected by a
 	// separate mutex so read-time callers are not blocked unless they need a

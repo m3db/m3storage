@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/m3db/m3cluster/kv"
+	"github.com/m3db/m3cluster/kv/mem"
 	"github.com/m3db/m3storage/generated/proto/configtest"
 	"github.com/m3db/m3storage/generated/proto/schema"
 	"github.com/m3db/m3x/log"
@@ -1632,7 +1633,7 @@ func newPlacementTestSuite(t require.TestingT) *placementTestSuite {
 }
 
 func newPlacementTestSuiteWithLogger(t require.TestingT, logger xlog.Logger) *placementTestSuite {
-	kv := kv.NewFakeStore()
+	kv := mem.NewStore()
 	clock := clock.NewMock()
 
 	sp, err := NewStoragePlacement(kv, "p", NewStoragePlacementOptions().

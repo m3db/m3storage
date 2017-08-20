@@ -36,6 +36,11 @@ func (r Range) IsEmpty() bool {
 	return r.Start == r.End
 }
 
+// Equal returns whether two time ranges are equal.
+func (r Range) Equal(other Range) bool {
+	return r.Start.Equal(other.Start) && r.End.Equal(other.End)
+}
+
 // Before determines whether r is before other.
 func (r Range) Before(other Range) bool {
 	return !r.End.After(other.Start)
@@ -54,6 +59,23 @@ func (r Range) Contains(other Range) bool {
 // Overlaps determines whether r overlaps with other.
 func (r Range) Overlaps(other Range) bool {
 	return r.End.After(other.Start) && r.Start.Before(other.End)
+}
+
+// Intersect calculates the intersection of the receiver range against the
+// provided argument range iff there is an overlap between the two. It also
+// returns a bool indicating if there was a valid intersection.
+func (r Range) Intersect(other Range) (Range, bool) {
+	if !r.Overlaps(other) {
+		return Range{}, false
+	}
+	newRange := r
+	if newRange.Start.Before(other.Start) {
+		newRange.Start = other.Start
+	}
+	if newRange.End.After(other.End) {
+		newRange.End = other.End
+	}
+	return newRange, true
 }
 
 // Since returns the time range since a given point in time.

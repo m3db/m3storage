@@ -30,7 +30,7 @@ import (
 )
 
 var (
-	errTestFn = RetriableError(errors.New("an error"))
+	errTestFn = RetryableError(errors.New("an error"))
 )
 
 type testFnOpts struct {
@@ -57,10 +57,11 @@ func newTestFn(opts testFnOpts) Fn {
 
 func testOptions() Options {
 	return NewOptions().
-		InitialBackoff(time.Second).
-		BackoffFactor(2).
-		Max(2).
-		Jitter(false)
+		SetInitialBackoff(time.Second).
+		SetBackoffFactor(2).
+		SetMaxRetries(2).
+		SetForever(false).
+		SetJitter(false)
 }
 
 func TestRetrierExponentialBackOffSuccess(t *testing.T) {
@@ -98,6 +99,21 @@ func TestRetrierExponentialBackOffFailure(t *testing.T) {
 	assert.Equal(t, 3*time.Second, slept)
 }
 
+func TestRetrierMaxBackoff(t *testing.T) {
+	succeedAfter := 3
+	opts := testOptions().
+		SetMaxRetries(succeedAfter).
+		SetMaxBackoff(3 * time.Second)
+	slept := time.Duration(0)
+	r := NewRetrier(opts).(*retrier)
+	r.sleepFn = func(t time.Duration) {
+		slept += t
+	}
+	err := r.Attempt(newTestFn(testFnOpts{succeedAfter: &succeedAfter}))
+	assert.Nil(t, err)
+	assert.Equal(t, 6*time.Second, slept)
+}
+
 func TestRetrierExponentialBackOffBreakWhileImmediate(t *testing.T) {
 	slept := time.Duration(0)
 	r := NewRetrier(testOptions()).(*retrier)
@@ -123,7 +139,7 @@ func TestRetrierExponentialBackOffBreakWhileSecondAttempt(t *testing.T) {
 func TestRetrierExponentialBackOffJitter(t *testing.T) {
 	succeedAfter := 1
 	slept := time.Duration(0)
-	r := NewRetrier(testOptions().Jitter(true)).(*retrier)
+	r := NewRetrier(testOptions().SetJitter(true)).(*retrier)
 	r.sleepFn = func(t time.Duration) {
 		slept += t
 	}
@@ -134,26 +150,46 @@ func TestRetrierExponentialBackOffJitter(t *testing.T) {
 	assert.True(t, 500*time.Millisecond <= slept && slept < time.Second)
 }
 
-func TestRetrierExponentialBackOffNonRetriableErrorImmediate(t *testing.T) {
+func TestRetrierExponentialBackOffNonRetryableErrorImmediate(t *testing.T) {
 	slept := time.Duration(0)
 	r := NewRetrier(testOptions()).(*retrier)
 	r.sleepFn = func(t time.Duration) {
 		slept += t
 	}
-	expectedErr := NonRetriableError(fmt.Errorf("an error"))
+	expectedErr := NonRetryableError(fmt.Errorf("an error"))
 	err := r.Attempt(newTestFn(testFnOpts{errs: []error{expectedErr}}))
 	assert.Equal(t, expectedErr, err)
 	assert.Equal(t, time.Duration(0), slept)
 }
 
-func TestRetrierExponentialBackOffNonRetriableErrorSecondAttempt(t *testing.T) {
+func TestRetrierExponentialBackOffNonRetryableErrorSecondAttempt(t *testing.T) {
 	slept := time.Duration(0)
 	r := NewRetrier(testOptions()).(*retrier)
 	r.sleepFn = func(t time.Duration) {
 		slept += t
 	}
-	expectedErr := NonRetriableError(fmt.Errorf("an error"))
+	expectedErr := NonRetryableError(fmt.Errorf("an error"))
 	err := r.Attempt(newTestFn(testFnOpts{errs: []error{errTestFn, expectedErr}}))
 	assert.Equal(t, expectedErr, err)
 	assert.Equal(t, time.Second, slept)
+}
+
+func TestRetryForever(t *testing.T) {
+	var (
+		errForever  = errors.New("error forever")
+		numAttempts int
+		totalSlept  time.Duration
+	)
+	r := NewRetrier(testOptions().SetForever(true)).(*retrier)
+	r.sleepFn = func(t time.Duration) {
+		totalSlept += t
+		numAttempts++
+	}
+	foreverFn := func() error { return errForever }
+	continueFn := func(attempt int) bool { return attempt < 10 }
+
+	err := r.AttemptWhile(continueFn, foreverFn)
+	assert.Equal(t, ErrWhileConditionFalse, err)
+	assert.Equal(t, 10, numAttempts)
+	assert.Equal(t, time.Duration(1023*time.Second), totalSlept)
 }

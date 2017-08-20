@@ -22,8 +22,10 @@ package xerrors
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,6 +33,8 @@ func TestMultiErrorNoError(t *testing.T) {
 	err := NewMultiError()
 	require.Nil(t, err.FinalError())
 	require.Equal(t, "", err.Error())
+	require.True(t, err.Empty())
+	require.Equal(t, 0, err.NumErrors())
 }
 
 func TestMultiErrorOneError(t *testing.T) {
@@ -39,6 +43,8 @@ func TestMultiErrorOneError(t *testing.T) {
 	final := err.FinalError()
 	require.NotNil(t, final)
 	require.Equal(t, "foo", final.Error())
+	require.False(t, err.Empty())
+	require.Equal(t, 1, err.NumErrors())
 }
 
 func TestMultiErrorMultipleErrors(t *testing.T) {
@@ -50,4 +56,15 @@ func TestMultiErrorMultipleErrors(t *testing.T) {
 	final := err.FinalError()
 	require.NotNil(t, final)
 	require.Equal(t, final.Error(), "foo\nbar\nbaz")
+	require.False(t, err.Empty())
+	require.Equal(t, 3, err.NumErrors())
+}
+
+func TestErrorsIsAnErrorAndFormatsErrors(t *testing.T) {
+	errs := error(Errors{
+		fmt.Errorf("some error: foo=2, bar=baz"),
+		fmt.Errorf("some other error: foo=42, bar=qux"),
+	})
+	assert.Equal(t, "[<some error: foo=2, bar=baz>, "+
+		"<some other error: foo=42, bar=qux>]", errs.Error())
 }

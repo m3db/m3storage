@@ -1,5 +1,5 @@
-hash: b556af45812ae1f820f06e436bce85fe6a0a148a0b5508f735c9b2766dc3f835
-updated: 2017-08-19T22:11:54.22570595-04:00
+hash: 628b94cc2f6ae6a41e77d5d8232408c7e892be0cec007c4160a502fbdb600f27
+updated: 2017-08-19T22:47:35.380558218-04:00
 imports:
 - name: github.com/facebookgo/clock
   version: 600d898af40aa09a7a93ecb9265d87b0504b6f03
@@ -13,13 +13,13 @@ imports:
   - proto
   - protoc-gen-go
 - name: github.com/m3db/m3cluster
-  version: 4f49de9fa91d2aa5670e72bb67590d81b7c61d5f
+  version: f6b9a050f90287e65d98c08298a38de29314f884
   subpackages:
   - changeset
   - generated/proto/changesetpb
   - kv
 - name: github.com/m3db/m3x
-  version: e619ed7a93221fde8a88754168de1a70c78484cb
+  version: 8a4d651f961b2dd33426e5ee9205dc915f117efb
   subpackages:
   - close
   - log

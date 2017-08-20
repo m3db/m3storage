@@ -1,13 +1,11 @@
 language: go
 go:
-  - 1.5
-  - 1.6
+  - 1.7
 install:
   - go get -v github.com/Masterminds/glide
   - glide install
 env:
  # Set higher timeouts for Travis
- - TEST_TIMEOUT_SCALE=20
+ - TEST_TIMEOUT_SCALE=20 PACKAGE=github.com/m3db/m3x
 script:
- - make lint
- - make test-ci-unit
+ - make all

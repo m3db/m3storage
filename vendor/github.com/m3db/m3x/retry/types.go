@@ -24,16 +24,18 @@ import (
 	"time"
 
 	"github.com/m3db/m3x/errors"
+
+	"github.com/uber-go/tally"
 )
 
-// RetriableError returns a retriable error
-func RetriableError(err error) error {
-	return xerrors.NewRetriableError(err)
+// RetryableError returns a retryable error
+func RetryableError(err error) error {
+	return xerrors.NewRetryableError(err)
 }
 
-// NonRetriableError returns a non-retriable error
-func NonRetriableError(err error) error {
-	return xerrors.NewNonRetriableError(err)
+// NonRetryableError returns a non-retryable error
+func NonRetryableError(err error) error {
+	return xerrors.NewNonRetryableError(err)
 }
 
 // Fn is a function that can be retried
@@ -53,29 +55,49 @@ type Retrier interface {
 
 // Options is a set of retry options
 type Options interface {
-	// InitialBackoff sets the initial delay duration
-	InitialBackoff(value time.Duration) Options
+	// SetMetricsScope sets the metrics scope
+	SetMetricsScope(value tally.Scope) Options
 
-	// GetInitialBackoff gets the initial delay duration
-	GetInitialBackoff() time.Duration
+	// MetricsScope returns the metrics scope
+	MetricsScope() tally.Scope
 
-	// BackoffFactor sets the backoff factor multiplier when moving to next attempt
-	BackoffFactor(value float64) Options
+	// SetInitialBackoff sets the initial delay duration
+	SetInitialBackoff(value time.Duration) Options
 
-	// GetBackoffFactor gets the backoff factor multiplier when moving to next attempt
-	GetBackoffFactor() float64
+	// InitialBackoff gets the initial delay duration
+	InitialBackoff() time.Duration
 
-	// Max sets the maximum retry attempts
-	Max(value int) Options
+	// SetBackoffFactor sets the backoff factor multiplier when moving to next attempt
+	SetBackoffFactor(value float64) Options
 
-	// GetMax gets the maximum retry attempts
-	GetMax() int
+	// BackoffFactor gets the backoff factor multiplier when moving to next attempt
+	BackoffFactor() float64
 
-	// Jitter sets whether to jitter between the current backoff and the next
+	// SetMaxBackoff sets the maximum backoff delay
+	SetMaxBackoff(value time.Duration) Options
+
+	// MaxBackoff returns the maximum backoff delay
+	MaxBackoff() time.Duration
+
+	// SetMaxRetries sets the maximum retry attempts
+	SetMaxRetries(value int) Options
+
+	// Max gets the maximum retry attempts
+	MaxRetries() int
+
+	// SetForever sets whether to retry forever until either the attempt succeeds,
+	// or the retry condition becomes false.
+	SetForever(value bool) Options
+
+	// Forever returns whether to retry forever until either the attempt succeeds,
+	// or the retry condition becomes false.
+	Forever() bool
+
+	// SetJitter sets whether to jitter between the current backoff and the next
 	// backoff when moving to next attempt
-	Jitter(value bool) Options
+	SetJitter(value bool) Options
 
-	// GetJitter gets whether to jitter between the current backoff and the next
+	// Jitter gets whether to jitter between the current backoff and the next
 	// backoff when moving to next attempt
-	GetJitter() bool
+	Jitter() bool
 }

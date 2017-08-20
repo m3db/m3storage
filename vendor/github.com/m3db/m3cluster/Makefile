@@ -1,3 +1,6 @@
+SELF_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
+include $(SELF_DIR)/.ci/common.mk
+
 SHELL=/bin/bash -o pipefail
 
 html_report := coverage.html
@@ -7,7 +10,6 @@ coverfile := cover.out
 coverage_xml := coverage.xml
 junit_xml := junit.xml
 test_log := test.log
-test_target := .
 lint_check := .ci/lint.sh
 package_root := github.com/m3db/m3cluster
 gopath_prefix := $(GOPATH)/src
@@ -29,13 +31,16 @@ VENDOR_ENV := GO15VENDOREXPERIMENT=1
 setup:
 	mkdir -p $(BUILD)
 
+all: lint test-ci-unit
+	@echo make all successfully finished
+
 lint:
 	@which golint > /dev/null || go get -u github.com/golang/lint/golint
 	$(VENDOR_ENV) $(lint_check)
 
 test-internal:
 	@which go-junit-report > /dev/null || go get -u github.com/sectioneight/go-junit-report
-	@$(VENDOR_ENV) $(test) $(test_target) $(coverfile) | tee $(test_log)
+	@$(VENDOR_ENV) $(test) $(coverfile) | tee $(test_log)
 
 test-xml: test-internal
 	go-junit-report < $(test_log) > $(junit_xml)
@@ -54,10 +59,6 @@ test-ci-unit: test-internal
 	@which goveralls > /dev/null || go get -u -f github.com/mattn/goveralls
 	goveralls -coverprofile=$(coverfile) -service=travis-ci || echo -e "\x1b[31mCoveralls failed\x1b[m"
 
-install-vendor: .gitmodules
-	@echo Updating submodules
-	git submodule update --init --recursive
-
 install-mockgen: install-vendor
 	@echo Installing mockgen
 	glide install
@@ -66,18 +67,20 @@ install-license-bin: install-vendor
 	@echo Installing node modules
 	[ -d $(license_node_modules) ] || (cd $(license_dir) && npm install)
 
-install-proto-bin: install-vendor 
+install-proto-bin: install-vendor
 	@echo Installing protobuf binaries
 	@echo Note: the protobuf compiler v3.0.0 can be downloaded from https://github.com/google/protobuf/releases or built from source at https://github.com/google/protobuf.
 	go install $(package_root)/$(vendor_prefix)/$(protoc_go_package)
 
-mock-gen: install-mockgen install-license-bin
+mock-gen: install-mockgen install-license-bin mock-gen-no-deps
+
+mock-gen-no-deps:
 	@echo Generating mocks
-	$(auto_gen) $(mocks_output_dir) $(mocks_rules_dir)
+	PACKAGE=$(package_root) $(auto_gen) $(mocks_output_dir) $(mocks_rules_dir)
 
 proto-gen: install-proto-bin install-license-bin
 	@echo Generating protobuf files
-	$(auto_gen) $(proto_output_dir) $(proto_rules_dir)
+	PACKAGE=$(package_root) $(auto_gen) $(proto_output_dir) $(proto_rules_dir)
 
 all-gen: proto-gen mock-gen
 
@@ -85,4 +88,4 @@ clean:
 	@rm -f *.html *.xml *.out *.test
 
 .DEFAULT_GOAL := test
-.PHONY: test test-xml test-internal testhtml clean
+.PHONY: test test-xml test-internal testhtml clean all
