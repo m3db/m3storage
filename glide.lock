@@ -1,5 +1,5 @@
 hash: 628b94cc2f6ae6a41e77d5d8232408c7e892be0cec007c4160a502fbdb600f27
-updated: 2017-08-19T22:47:35.380558218-04:00
+updated: 2017-08-26T16:37:54.230183466-04:00
 imports:
 - name: github.com/facebookgo/clock
   version: 600d898af40aa09a7a93ecb9265d87b0504b6f03
@@ -18,6 +18,7 @@ imports:
   - changeset
   - generated/proto/changesetpb
   - kv
+  - kv/mem
 - name: github.com/m3db/m3x
   version: 8a4d651f961b2dd33426e5ee9205dc915f117efb
   subpackages:
