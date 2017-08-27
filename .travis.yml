@@ -5,7 +5,8 @@ install:
   - go get -v github.com/Masterminds/glide
   - glide install
 env:
- # Set higher timeouts for Travis
- - TEST_TIMEOUT_SCALE=20 PACKAGE=github.com/m3db/m3storage
+  global:
+    - TEST_TIMEOUT_SCALE=20 # Set higher timeouts for Travis
+    - PACKAGE=github.com/$TRAVIS_REPO_SLUG
 script:
  - make all
