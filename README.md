@@ -5,7 +5,8 @@
 Tiered storage manager.  Supports time series queries across multiple storage clusters, with support for aggregating results across retention periods, smart resolution downsampling, and graceful migration of time series data between clusters as capacity requirements change.
 
 <hr>
-This project is released under the [MIT License](LICENSE.md).
+
+This project is released under the [Apache License, Version 2.0](LICENSE).
 
 [doc-img]: https://godoc.org/github.com/m3db/m3storage?status.svg
 [doc]: https://godoc.org/github.com/m3db/m3storage
