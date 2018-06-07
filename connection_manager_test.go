@@ -459,7 +459,7 @@ func TestConnectionManagerReconfigureClusterDriverFails(t *testing.T) {
 
 	// The driver should have open and reconfigure called appropriately
 	require.Equal(t, uint32(1), d.opens)
-	require.Equal(t, uint32(1), d.reconfigures)
+	require.Equal(t, uint32(1), atomic.LoadUint32(&d.reconfigures))
 
 }
 

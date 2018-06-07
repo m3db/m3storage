@@ -1,5 +1,5 @@
-hash: 0e125e32405c080c7c9886e2332745644f904ad0ff1766c243abf40e38645c07
-updated: 2016-09-01T14:26:22.90988474-04:00
+hash: 628b94cc2f6ae6a41e77d5d8232408c7e892be0cec007c4160a502fbdb600f27
+updated: 2017-08-26T16:37:54.230183466-04:00
 imports:
 - name: github.com/facebookgo/clock
   version: 600d898af40aa09a7a93ecb9265d87b0504b6f03
@@ -13,13 +13,14 @@ imports:
   - proto
   - protoc-gen-go
 - name: github.com/m3db/m3cluster
-  version: 4f49de9fa91d2aa5670e72bb67590d81b7c61d5f
+  version: f6b9a050f90287e65d98c08298a38de29314f884
   subpackages:
   - changeset
-  - kv
   - generated/proto/changesetpb
+  - kv
+  - kv/mem
 - name: github.com/m3db/m3x
-  version: e619ed7a93221fde8a88754168de1a70c78484cb
+  version: 8a4d651f961b2dd33426e5ee9205dc915f117efb
   subpackages:
   - close
   - log
@@ -32,4 +33,12 @@ imports:
   - require
 - name: github.com/willf/bitset
   version: 1730870b454dde6756091d8c6a3d780ef123674c
-devImports: []
+testImports:
+- name: github.com/davecgh/go-spew
+  version: 5215b55f46b2b919f50a1df0eaa5886afe4e3b3d
+  subpackages:
+  - spew
+- name: github.com/pmezard/go-difflib
+  version: d8ed2627bdf02c080bf22230dbb337003b7aba2d
+  subpackages:
+  - difflib

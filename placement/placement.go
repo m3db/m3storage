@@ -124,11 +124,11 @@ func NewStoragePlacement(kv kv.Store, key string, opts StoragePlacementOptions) 
 	}
 
 	mgr, err := changeset.NewManager(changeset.NewManagerOptions().
-		KV(kv).
-		ConfigType(&schema.Placement{}).
-		ChangesType(&schema.PlacementChanges{}).
-		ConfigKey(key).
-		Logger(logger))
+		SetKV(kv).
+		SetConfigType(&schema.Placement{}).
+		SetChangesType(&schema.PlacementChanges{}).
+		SetConfigKey(key).
+		SetLogger(logger))
 	if err != nil {
 		return nil, err
 	}

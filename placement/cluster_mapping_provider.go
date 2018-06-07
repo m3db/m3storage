@@ -108,8 +108,11 @@ func (mp *clusterMappingProvider) QueryMappings(
 	}
 
 	// Figure out which active mapping contains that shard
+	db.RLock()
+	prior := db.mappings.findActiveForShard(uint(shard))
+	db.RUnlock()
 	return &mappingRuleIter{
-		prior: db.mappings.findActiveForShard(uint(shard)),
+		prior: prior,
 	}, nil
 }
 
