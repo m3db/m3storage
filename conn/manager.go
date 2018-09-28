@@ -16,13 +16,14 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package storage
+package conn
 
 import (
 	"errors"
-	"fmt"
 	"sync"
+	"time"
 
+	"github.com/m3db/m3storage/cluster"
 	"github.com/m3db/m3x/close"
 	"github.com/m3db/m3x/log"
 
@@ -33,51 +34,59 @@ import (
 var (
 	errClosed                 = errors.New("closed")
 	errStorageTypeUnsupported = errors.New("unsupported storage type")
+	errTimeout                = errors.New("timeout waiting for config")
 
-	errConnectionManagerLogRequired      = errors.New("logger required")
-	errConnectionManagerDriversRequired  = errors.New("at least 1 driver required")
-	errConnectionManagerProviderRequired = errors.New("provider required")
+	errManagerLogRequired          = errors.New("logger required")
+	errManagerDriversRequired      = errors.New("at least 1 driver required")
+	errManagerProviderRequired     = errors.New("provider required")
+	errManagerWatchTimeoutRequired = errors.New("watch timeout required")
 )
 
-// ConnectionManagerOptions are creation time options for the ConnectionManager
-type ConnectionManagerOptions interface {
+// ManagerOptions are creation time options for the Manager
+type ManagerOptions interface {
 	// Logger is the logger to use
-	Logger(log xlog.Logger) ConnectionManagerOptions
+	Logger(log xlog.Logger) ManagerOptions
 	GetLogger() xlog.Logger
 
-	// Provider provides information about active clusters
-	Provider(p ClusterMappingProvider) ConnectionManagerOptions
-	GetProvider() ClusterMappingProvider
+	// Provider provides information about active cnames
+	Provider(p cluster.Provider) ManagerOptions
+	GetProvider() cluster.Provider
 
-	// Drivers are the set of drivers used by this ConnectionManager
-	Drivers(d []Driver) ConnectionManagerOptions
+	// Drivers are the set of drivers used by this Manager
+	Drivers(d []Driver) ManagerOptions
 	GetDrivers() []Driver
+
+	// WatchTimeout is the amount of time to wait for a cluster configuration to
+	// become available
+	WatchTimeout(d time.Duration) ManagerOptions
+	GetWatchTimeout() time.Duration
 
 	// Validate validates the options
 	Validate() error
 }
 
-// NewConnectionManagerOptions returns new empty ConnectionManagerOptions
-func NewConnectionManagerOptions() ConnectionManagerOptions {
-	return connectionManagerOptions{
-		log: xlog.NullLogger,
+// NewManagerOptions returns new empty ManagerOptions
+func NewManagerOptions() ManagerOptions {
+	return managerOptions{
+		log:          xlog.NullLogger,
+		watchTimeout: time.Second,
 	}
 }
 
-// The ConnectionManager manages connections to tsdb clusters, creating them as
+// The Manager manages connections to tsdb cnames, creating them as
 // needed and keeping them up to date with configuration changes
-type ConnectionManager interface {
+type Manager interface {
 	xclose.Closer
 
-	// GetConnection retrieves the connection to the given database and cluster
-	GetConnection(database, cluster string) (Connection, error)
+	// GetConn retrieves the connection to the given dbname and cname
+	GetConn(dbname, cname string) (Conn, error)
 }
 
-// NewConnectionManager creates a new connection manager based on the provided
+// NewManager creates a new connection manager based on the provided
 // options
-func NewConnectionManager(opts ConnectionManagerOptions) (ConnectionManager, error) {
+func NewManager(opts ManagerOptions) (Manager, error) {
 	if opts == nil {
-		opts = NewConnectionManagerOptions()
+		opts = NewManagerOptions()
 	}
 
 	if err := opts.Validate(); err != nil {
@@ -89,45 +98,47 @@ func NewConnectionManager(opts ConnectionManagerOptions) (ConnectionManager, err
 		drivers[driver.Type().Name()] = driver
 	}
 
-	return &connectionManager{
-		log:      opts.GetLogger(),
-		conns:    make(map[string]Connection),
-		pending:  make(map[string]<-chan struct{}),
-		watches:  make(map[string]ClusterWatch),
-		drivers:  drivers,
-		provider: opts.GetProvider(),
+	return &manager{
+		watchTimeout: opts.GetWatchTimeout(),
+		log:          opts.GetLogger(),
+		conns:        make(map[string]Conn),
+		pending:      make(map[string]<-chan struct{}),
+		watches:      make(map[string]cluster.Watch),
+		drivers:      drivers,
+		provider:     opts.GetProvider(),
 	}, nil
 }
 
-type connectionManager struct {
+type manager struct {
 	sync.RWMutex
 
-	log      xlog.Logger
-	conns    map[string]Connection
-	pending  map[string]<-chan struct{}
-	watches  map[string]ClusterWatch
-	drivers  map[string]Driver
-	provider ClusterMappingProvider
-	closed   bool
-	wg       sync.WaitGroup
+	log          xlog.Logger
+	conns        map[string]Conn
+	pending      map[string]<-chan struct{}
+	watches      map[string]cluster.Watch
+	drivers      map[string]Driver
+	provider     cluster.Provider
+	watchTimeout time.Duration
+	closed       bool
+	wg           sync.WaitGroup
 }
 
-// GetConnection retrieves a connection to the given database and cluster
-func (cm *connectionManager) GetConnection(database, cluster string) (Connection, error) {
-	cm.log.Debugf("retrieving connection for %s:%s", database, cluster)
+// GetConn retrieves a connection to the given dbname and cname
+func (cm *manager) GetConn(dbname, cname string) (Conn, error) {
+	cm.log.Debugf("retrieving connection for %s:%s", dbname, cname)
 	for {
-		if conn, err := cm.getExistingConn(database, cluster); conn != nil || err != nil {
+		if conn, err := cm.getExistingConn(dbname, cname); conn != nil || err != nil {
 			return conn, err
 		}
 
-		if conn, err := cm.tryOpenConn(database, cluster); conn != nil || err != nil {
+		if conn, err := cm.tryOpenConn(dbname, cname); conn != nil || err != nil {
 			return conn, err
 		}
 	}
 }
 
 // Close closes the connection manager
-func (cm *connectionManager) Close() error {
+func (cm *manager) Close() error {
 	cm.Lock()
 	if cm.closed {
 		cm.Unlock()
@@ -151,9 +162,9 @@ func (cm *connectionManager) Close() error {
 	return nil
 }
 
-// getExistingConn attmepts to return an existing open connection to the database cluster
-func (cm *connectionManager) getExistingConn(database, cluster string) (Connection, error) {
-	key := fmtConnKey(database, cluster)
+// getExistingConn attmepts to return an existing open connection to the dbname cname
+func (cm *manager) getExistingConn(dbname, cname string) (Conn, error) {
+	key := cluster.FmtKey(dbname, cname)
 
 	cm.RLock()
 	defer cm.RUnlock()
@@ -172,11 +183,11 @@ func (cm *connectionManager) getExistingConn(database, cluster string) (Connecti
 	return nil, nil
 }
 
-// tryOpenConn tries to create a new connection to the database cluster
-func (cm *connectionManager) tryOpenConn(database, cluster string) (Connection, error) {
-	key := fmtConnKey(database, cluster)
+// tryOpenConn tries to create a new connection to the dbname cname
+func (cm *manager) tryOpenConn(dbname, cname string) (Conn, error) {
+	key := cluster.FmtKey(dbname, cname)
 
-	cm.log.Infof("attempting to create connection to %s:%s", database, cluster)
+	cm.log.Infof("attempting to create connection to %s:%s", dbname, cname)
 
 	cm.Lock()
 
@@ -217,19 +228,24 @@ func (cm *connectionManager) tryOpenConn(database, cluster string) (Connection, 
 		close(p)
 	}()
 
-	// Get the current cluster configuration and watch for changes
-	cw, err := cm.provider.WatchCluster(database, cluster)
+	// Get the current cname configuration and watch for changes
+	cw, err := cm.provider.WatchCluster(dbname, cname)
 	if err != nil {
-		cm.log.Errorf("failed to watch cluster config for %s:%s: %v", database, cluster, err)
+		cm.log.Errorf("failed to watch cname config for %s:%s: %v", dbname, cname, err)
 		return nil, err
 	}
-	<-cw.C()
+
+	select {
+	case <-cw.C():
+	case <-time.After(cm.watchTimeout):
+		return nil, errTimeout
+	}
 	cl := cw.Get()
 
-	// create the connection using the cluster configuration
+	// create the connection using the cname configuration
 	conn, err := cm.openConn(cl)
 	if err != nil {
-		cm.log.Errorf("failed to open connection for %s:%s: %v", database, cluster, err)
+		cm.log.Errorf("failed to open connection for %s:%s: %v", dbname, cname, err)
 		cw.Close()
 		return nil, err
 	}
@@ -242,8 +258,8 @@ func (cm *connectionManager) tryOpenConn(database, cluster string) (Connection, 
 	return conn, nil
 }
 
-// openConn opens a connection to the given cluster
-func (cm *connectionManager) openConn(cl Cluster) (Connection, error) {
+// openConn opens a connection to the given cname
+func (cm *manager) openConn(cl cluster.Cluster) (Conn, error) {
 	d := cm.drivers[cl.Type().Name()]
 	if d == nil {
 		cm.log.Errorf("unsupported driver type %s for %s:%s",
@@ -258,12 +274,12 @@ func (cm *connectionManager) openConn(cl Cluster) (Connection, error) {
 		return nil, err
 	}
 
-	return d.OpenConnection(cfg)
+	return d.Open(cfg)
 }
 
-// registerConn registers a newly opened connection to the given database cluster
-func (cm *connectionManager) registerConn(cl Cluster, cw ClusterWatch, conn Connection) error {
-	key := fmtConnKeyFromCluster(cl)
+// registerConn registers a newly opened connection to the given dbname cname
+func (cm *manager) registerConn(cl cluster.Cluster, cw cluster.Watch, conn Conn) error {
+	key := cl.Key()
 
 	cm.Lock()
 	defer cm.Unlock()
@@ -277,15 +293,15 @@ func (cm *connectionManager) registerConn(cl Cluster, cw ClusterWatch, conn Conn
 	// Register the watch and connection
 	cm.conns[key], cm.watches[key] = conn, cw
 
-	// Spin up a goroutine to monitor the cluster for updates
+	// Spin up a goroutine to monitor the cname for updates
 	cm.wg.Add(1)
 	go cm.watchCluster(cl, cw, conn)
 
 	return nil
 }
 
-// watchCluster monitors the given cluster for config updates
-func (cm *connectionManager) watchCluster(cl Cluster, cw ClusterWatch, conn Connection) {
+// watchCluster monitors the given cname for config updates
+func (cm *manager) watchCluster(cl cluster.Cluster, cw cluster.Watch, conn Conn) {
 	cm.log.Infof("watching %s:%s", cl.Database(), cl.Name())
 	for range cw.C() {
 		cm.reconfigureConn(cw.Get(), conn)
@@ -295,9 +311,9 @@ func (cm *connectionManager) watchCluster(cl Cluster, cw ClusterWatch, conn Conn
 	cm.wg.Done()
 }
 
-// reconfigureConn reconfigures a connection with new cluster configuration
-func (cm *connectionManager) reconfigureConn(cl Cluster, existing Connection) error {
-	key := fmtConnKeyFromCluster(cl)
+// reconfigureConn reconfigures a connection with new cname configuration
+func (cm *manager) reconfigureConn(cl cluster.Cluster, existing Conn) error {
+	key := cl.Key()
 	d := cm.drivers[cl.Type().Name()]
 	if d == nil {
 		cm.log.Errorf("received update v%d for %s:%s: unsupported storage type %s",
@@ -315,7 +331,7 @@ func (cm *connectionManager) reconfigureConn(cl Cluster, existing Connection) er
 		return err
 	}
 
-	newConn, err := d.ReconfigureConnection(existing, cfg)
+	newConn, err := d.Reconfigure(existing, cfg)
 	if err != nil {
 		cm.log.Errorf("could not reconfigure conn for %s:%d v%d: %v",
 			cl.Database(), cl.Name(), cl.Config().Version(), err)
@@ -328,11 +344,11 @@ func (cm *connectionManager) reconfigureConn(cl Cluster, existing Connection) er
 	return nil
 }
 
-// cleanupConn cleans up the connection to the given database and cluster
-func (cm *connectionManager) cleanupConn(database, cluster string) {
-	cm.log.Infof("cleaning up connection to %s:%s", database, cluster)
+// cleanupConn cleans up the connection to the given dbname and cname
+func (cm *manager) cleanupConn(dbname, cname string) {
+	cm.log.Infof("cleaning up connection to %s:%s", dbname, cname)
 
-	key := fmtConnKey(database, cluster)
+	key := cluster.FmtKey(dbname, cname)
 
 	cm.Lock()
 	conn := cm.conns[key]
@@ -345,49 +361,57 @@ func (cm *connectionManager) cleanupConn(database, cluster string) {
 	}
 }
 
-type connectionManagerOptions struct {
-	log   xlog.Logger
-	clock clock.Clock
-	p     ClusterMappingProvider
-	d     []Driver
+type managerOptions struct {
+	log          xlog.Logger
+	clock        clock.Clock
+	p            cluster.Provider
+	watchTimeout time.Duration
+	d            []Driver
 }
 
-func (opts connectionManagerOptions) Validate() error {
+func (opts managerOptions) Validate() error {
 	if opts.log == nil {
-		return errConnectionManagerLogRequired
+		return errManagerLogRequired
 	}
 
 	if len(opts.d) == 0 {
-		return errConnectionManagerDriversRequired
+		return errManagerDriversRequired
 	}
 
 	if opts.p == nil {
-		return errConnectionManagerProviderRequired
+		return errManagerProviderRequired
+	}
+
+	if opts.watchTimeout == 0 {
+		return errManagerWatchTimeoutRequired
 	}
 
 	return nil
 }
 
-func (opts connectionManagerOptions) GetLogger() xlog.Logger { return opts.log }
-func (opts connectionManagerOptions) GetDrivers() []Driver   { return opts.d }
-func (opts connectionManagerOptions) GetProvider() ClusterMappingProvider {
+func (opts managerOptions) GetWatchTimeout() time.Duration { return opts.watchTimeout }
+func (opts managerOptions) GetLogger() xlog.Logger         { return opts.log }
+func (opts managerOptions) GetDrivers() []Driver           { return opts.d }
+func (opts managerOptions) GetProvider() cluster.Provider {
 	return opts.p
 }
 
-func (opts connectionManagerOptions) Logger(log xlog.Logger) ConnectionManagerOptions {
+func (opts managerOptions) Logger(log xlog.Logger) ManagerOptions {
 	opts.log = log
 	return opts
 }
 
-func (opts connectionManagerOptions) Provider(p ClusterMappingProvider) ConnectionManagerOptions {
+func (opts managerOptions) Provider(p cluster.Provider) ManagerOptions {
 	opts.p = p
 	return opts
 }
 
-func (opts connectionManagerOptions) Drivers(d []Driver) ConnectionManagerOptions {
+func (opts managerOptions) Drivers(d []Driver) ManagerOptions {
 	opts.d = d
 	return opts
 }
 
-func fmtConnKey(database, cluster string) string { return fmt.Sprintf("%s:%s", database, cluster) }
-func fmtConnKeyFromCluster(cl Cluster) string    { return fmtConnKey(cl.Database(), cl.Name()) }
+func (opts managerOptions) WatchTimeout(t time.Duration) ManagerOptions {
+	opts.watchTimeout = t
+	return opts
+}

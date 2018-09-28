@@ -621,6 +621,13 @@ func (sp storagePlacement) commitDatabaseChanges(
 		})
 	}
 
+	// ...and for clusters that have been newly joined...
+	for cname := range changes.Joins {
+		rules.ClusterConfigUpdates = append(rules.ClusterConfigUpdates, &schema.ClusterConfigUpdateRule{
+			ClusterName: cname,
+		})
+	}
+
 	// ...and sort these by cluster name so they have a deterministic ordering
 	sort.Sort(clusterConfigUpdatesByCluster(rules.ClusterConfigUpdates))
 

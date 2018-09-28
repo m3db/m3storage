@@ -21,6 +21,7 @@ package storage
 import (
 	"time"
 
+	"github.com/m3db/m3storage/mapping"
 	"github.com/m3db/m3x/log"
 	"github.com/m3db/m3x/time"
 
@@ -31,11 +32,11 @@ import (
 type queryPlanner struct {
 	clock clock.Clock
 	log   xlog.Logger
-	p     ClusterMappingProvider
+	p     mapping.Provider
 }
 
-// newQueryPlanner returns a new cluster query planner given a set of initial mappings
-func newQueryPlanner(provider ClusterMappingProvider, clock clock.Clock, log xlog.Logger) *queryPlanner {
+// newQueryPlanner returns a new cluster query planner given a set of initial rules
+func newQueryPlanner(provider mapping.Provider, clock clock.Clock, log xlog.Logger) *queryPlanner {
 	return &queryPlanner{
 		p:     provider,
 		clock: clock,
@@ -49,21 +50,21 @@ func newQueryPlanner(provider ClusterMappingProvider, clock clock.Clock, log xlo
 func (p *queryPlanner) plan(shard uint32, start, end time.Time) ([]query, error) {
 	var queries []query
 
-	mappings, err := p.p.QueryMappings(shard, start, end)
+	rules, err := p.p.FetchRules(shard, start, end)
 	if err != nil {
 		return nil, err
 	}
 
-	if mappings == nil {
-		// No mappings for this time range, so bail
+	if rules == nil {
+		// No rules for this time range, so bail
 		return nil, nil
 	}
 
 	// Find all of the rules that apply to the query time range.
 	p.log.Debugf("building query plan from %v to %v", start, end)
 
-	for mappings.Next() {
-		m := mappings.Current()
+	for rules.Next() {
+		m := rules.Current()
 
 		if !m.CutoffTime().IsZero() && m.CutoffTime().Before(start) {
 			// We've reached a rule that ends before the start of the query - no more rules apply
@@ -106,7 +107,7 @@ func (p *queryPlanner) plan(shard uint32, start, end time.Time) ([]query, error)
 		queries = append(queries, q)
 	}
 
-	if err := mappings.Close(); err != nil {
+	if err := rules.Close(); err != nil {
 		return nil, err
 	}
 

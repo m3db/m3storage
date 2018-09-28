@@ -16,39 +16,63 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package placement
+package cluster
 
 import (
 	"testing"
 	"time"
 
-	"github.com/m3db/m3storage/generated/proto/configtest"
-	"github.com/m3db/m3storage/generated/proto/schema"
-	"github.com/m3db/m3x/log"
-
 	"github.com/stretchr/testify/require"
 )
 
-func TestClusters_WatchNonExistent(t *testing.T) {
-	clusters := newClusters(xlog.SimpleLogger)
-	w, err := clusters.watch("c1")
-	require.Equal(t, errClusterNotFound, err)
+func TestProviderWatchClosed(t *testing.T) {
+	ch := make(chan Cluster)
+	p, err := NewProvider(ch, NewProviderOptions())
+	require.NoError(t, err)
+
+	// Close the provider
+	require.NoError(t, p.Close())
+
+	// Try to watch - should fail
+	w, err := p.WatchCluster("foo", "c1")
+	require.Equal(t, errClosed, err)
 	require.Nil(t, w)
 }
 
-func TestClusters_Watch(t *testing.T) {
-	clusters := newClusters(xlog.SimpleLogger)
+func TestProviderWatchUnknownCluster(t *testing.T) {
+	ch := make(chan Cluster)
+	p, err := NewProvider(ch, NewProviderOptions())
+	require.NoError(t, err)
 
-	clusters.update(newCluster("foo", &schema.Cluster{
-		Properties: &schema.ClusterProperties{
-			Name: "c1",
-			Type: "m3db",
-		},
-		Config: newTestConfigBytes("h1", "h2", "h3"),
-	}, 43))
+	// Register an initial watch
+	w, err := p.WatchCluster("foo", "c1")
+	require.NoError(t, err)
+
+	// Send the initial value
+	ch <- NewCluster("c1", NewType("m3db"), "foo", NewConfig(43, []byte("hello")))
+
+	// Should trigger the watch
+	<-w.C()
+
+	c := w.Get()
+	require.Equal(t, "c1", c.Name())
+	require.Equal(t, "foo", c.Database())
+	require.Equal(t, "m3db", c.Type().Name())
+	require.Equal(t, 43, c.Config().Version())
+
+	// Close the provider
+	require.NoError(t, p.Close())
+}
+
+func TestProviderWatch(t *testing.T) {
+	ch := make(chan Cluster)
+	p, err := NewProvider(ch, NewProviderOptions())
+	require.NoError(t, err)
+
+	ch <- NewCluster("c1", NewType("m3db"), "foo", NewConfig(43, []byte("hello")))
 
 	// Register an initial watch and make sure we get the first value
-	w, err := clusters.watch("c1")
+	w, err := p.WatchCluster("foo", "c1")
 	require.NoError(t, err)
 	<-w.C()
 
@@ -58,18 +82,8 @@ func TestClusters_Watch(t *testing.T) {
 	require.Equal(t, "m3db", c.Type().Name())
 	require.Equal(t, 43, c.Config().Version())
 
-	var cfg configtest.TestConfig
-	require.NoError(t, c.Config().Unmarshal(&cfg))
-	require.Equal(t, []string{"h1", "h2", "h3"}, cfg.Hosts)
-
 	// Update the config
-	clusters.update(newCluster("foo", &schema.Cluster{
-		Properties: &schema.ClusterProperties{
-			Name: "c1",
-			Type: "m3db",
-		},
-		Config: newTestConfigBytes("h1", "h2"),
-	}, 45))
+	ch <- NewCluster("c1", NewType("m3db"), "foo", NewConfig(45, []byte("hello2")))
 
 	// Make sure the watch is triggered
 	<-w.C()
@@ -78,17 +92,9 @@ func TestClusters_Watch(t *testing.T) {
 	require.Equal(t, "foo", c.Database())
 	require.Equal(t, "m3db", c.Type().Name())
 	require.Equal(t, 45, c.Config().Version())
-	require.NoError(t, c.Config().Unmarshal(&cfg))
-	require.Equal(t, []string{"h1", "h2"}, cfg.Hosts)
 
 	// Update but with an older version, no watch should fire
-	clusters.update(newCluster("foo", &schema.Cluster{
-		Properties: &schema.ClusterProperties{
-			Name: "c1",
-			Type: "m3db",
-		},
-		Config: newTestConfigBytes("h1", "h2"),
-	}, 44))
+	ch <- NewCluster("c1", NewType("m3db"), "foo", NewConfig(44, []byte("hello3")))
 
 	updated := false
 	select {
@@ -101,4 +107,14 @@ func TestClusters_Watch(t *testing.T) {
 	// Close the watch
 	w.Close()
 	<-w.C()
+
+	// Close the provider
+	require.NoError(t, p.Close())
+}
+
+func TestProviderInvalidOptions(t *testing.T) {
+	ch := make(chan Cluster)
+	p, err := NewProvider(ch, NewProviderOptions().Logger(nil))
+	require.Equal(t, errProviderLogRequired, err)
+	require.Nil(t, p)
 }
